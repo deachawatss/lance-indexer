@@ -48,8 +48,30 @@ it returns the same public response shapes for all UI screens while reading
 only deterministic in-module fixtures. `wrangler.toml` declares one binding:
 static `ASSETS` from `ui/`.
 
-See [the rendered screenshot gallery](docs/public-demo-gallery.md) for every
-screen and [HOW-IT-WORKS.md](HOW-IT-WORKS.md) for local ingestion details.
+## Public demo — every screen
+
+These screenshots are rendered **directly in this README**; no click-through is
+needed. They were captured from the deployed static fixture demo, whose records
+are all deterministic synthetic data.
+
+### Search
+![Search: hybrid result list with corpus counts and facets](docs/screenshots/search.png)
+
+### Vector map
+![Vector map: rendered Atlas visualization with synthetic clusters](docs/screenshots/map.png)
+
+### Insight
+![Insight: evidence-first RAG question surface](docs/screenshots/insight.png)
+
+### Live intake
+![Live: bounded recently-indexed block feed](docs/screenshots/live.png)
+
+### Jobs
+![Jobs: fixture import and embedding activity with local-only safety boundary](docs/screenshots/jobs.png)
+
+For accompanying captions and the deployment boundary, see
+[docs/public-demo-gallery.md](docs/public-demo-gallery.md). For real local
+JSONL ingestion, read [HOW-IT-WORKS.md](HOW-IT-WORKS.md).
 
 ## Privacy
 

@@ -123,6 +123,7 @@ export const demoWorker = {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url); const path = url.pathname;
     if (path === "/health") return json({ ok: true, service: "lance-indexer", mode: "static-fixture", storage: "none" });
+    if (path === "/viz/index.json") return json(["atlas.js", "flat.js", "hologram.js", "radial.js", "timeline.js", "walk.js"]);
     if (path === "/api/status") return json({ demo: true, storage: "none", corpus: corpus() });
     if (path === "/api/facets") return json(facets());
     if (path === "/api/search") {
