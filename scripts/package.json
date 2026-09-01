@@ -1,0 +1,8 @@
+{
+  "name": "lance-indexer-scripts",
+  "private": true,
+  "dependencies": {
+    "@lancedb/lancedb": "0.27.2",
+    "apache-arrow": "18.1.0"
+  }
+}

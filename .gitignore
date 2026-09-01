@@ -1,0 +1,4 @@
+.data/
+scripts/node_modules/
+scripts/bun.lock
+.wrangler/

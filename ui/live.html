@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live · lance-indexer</title>
+<style>
+  :root {
+    --bg: #0c0d10; --panel: #131519; --panel2: #181b21; --line: #23272f; --line2: #2e333d;
+    --fg: #e4e7ec; --dim: #8b93a1; --dim2: #5d6572;
+    --acc: #7dd3a0; --accdim: #2f5c45; --hit: #f0c674;
+    --user: #7aa2f7; --assistant: #e8b04b; --tool: #bb9af7; --result: #7d8590;
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; scrollbar-color: var(--line2) transparent; scrollbar-width: thin; }
+  ::-webkit-scrollbar { width: 9px; } ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 5px; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.5 var(--mono); }
+  header { display: flex; align-items: center; gap: 12px; padding: 10px 16px;
+           border-bottom: 1px solid var(--line); background: var(--panel);
+           position: sticky; top: 0; z-index: 5; }
+  .brand { font-weight: 600; color: var(--acc); white-space: nowrap; }
+  .brand span { color: var(--dim2); font-weight: 400; }
+  nav.pages { display: inline-flex; border: 1px solid var(--line2); border-radius: 6px; overflow: hidden; }
+  nav.pages a { color: var(--dim); font: 11px var(--mono); padding: 8px 12px; text-decoration: none; }
+  nav.pages a + a { border-left: 1px solid var(--line2); }
+  nav.pages a:hover { color: var(--fg); }
+  nav.pages a[aria-current="page"] { background: var(--accdim); color: #dff5e8; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--dim2); }
+  .dot.live { background: var(--acc); animation: blink 1.2s infinite; }
+  @keyframes blink { 50% { opacity: .3; } }
+  #stat { color: var(--dim2); font-size: 11.5px; }
+  button.ghost { background: transparent; border: 1px solid var(--line2); border-radius: 6px;
+                 color: var(--dim); font: 11px var(--mono); padding: 7px 12px; cursor: pointer; }
+  button.ghost[aria-pressed="true"] { border-color: var(--acc); color: var(--acc); }
+  input#frepo { background: var(--bg); border: 1px solid var(--line2); border-radius: 6px;
+                color: var(--fg); font: 12px var(--mono); padding: 6px 9px; width: 160px; }
+  main { max-width: 1000px; margin: 0 auto; padding: 10px 16px 60px; }
+  .row { display: grid; grid-template-columns: 110px 1fr; gap: 10px; padding: 8px 10px;
+         border-bottom: 1px solid var(--line); cursor: pointer; }
+  .row:hover { background: var(--panel); }
+  #drill { position: fixed; inset: 0 0 0 auto; width: min(660px, 92vw); background: var(--panel);
+           border-left: 1px solid var(--line2); box-shadow: -12px 0 30px #0009; z-index: 9;
+           overflow-y: auto; padding: 14px 18px; }
+  #drill[hidden] { display: none; }
+  #drill .m { color: var(--dim); font-size: 11.5px; }
+  #drill pre { white-space: pre-wrap; word-break: break-word; font: 12.5px/1.55 var(--mono);
+               color: #c9d0da; margin: 10px 0 0; }
+  #drill button { background: transparent; border: 1px solid var(--line2); border-radius: 6px;
+                  color: var(--dim); font: 11px var(--mono); padding: 6px 11px; cursor: pointer;
+                  float: right; }
+  .row.fresh { animation: land 1.8s ease-out; }
+  @keyframes land { 0% { background: #7dd3a028; } 100% { background: transparent; } }
+  .row .kind .t { font-weight: 600; font-size: 11.5px; }
+  .t.text.user { color: var(--user); } .t.text.assistant { color: var(--assistant); }
+  .t.tool_use { color: var(--tool); } .t.tool_result { color: var(--result); }
+  .t.summary { color: var(--acc); }
+  .row .kind .when { color: var(--dim2); font-size: 10.5px; margin-top: 2px; }
+  .row .h { color: var(--dim); font-size: 11px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .row .t2 { margin-top: 2px; white-space: pre-wrap; word-break: break-word; font-size: 12.5px;
+             color: #c9d0da; max-height: 4.6em; overflow: hidden; }
+  #empty { color: var(--dim2); text-align: center; padding: 60px 0; }
+</style>
+</head>
+<body>
+<header>
+  <span class="brand">⛏ lance<span>·indexer</span></span>
+  <nav class="pages">
+    <a href="/">🔍 ค้นหา</a>
+    <a href="/map">🗺 แผนที่</a>
+    <a href="/insight">💡 insight</a>
+    <a href="/live" aria-current="page">📡 live</a>
+    <a href="/admin">⚙ jobs</a>
+  </nav>
+  <span class="dot live" id="dot"></span>
+  <span id="stat">เริ่ม…</span>
+  <input id="frepo" placeholder="กรอง repo (ว่าง = ทุกตัว)">
+  <button class="ghost" id="pause" aria-pressed="false">⏸ พัก</button>
+</header>
+<main>
+  <div id="feed"><div id="empty">รอ block แรก…</div></div>
+</main>
+<div id="drill" hidden></div>
+
+<script>
+// live feed: ทุก ~20s สั่ง import (backfill — 0.2-1s เพราะข้ามไฟล์ไม่เปลี่ยน) แล้วดึงแถวใหม่สุด
+// แถวที่ไม่เคยเห็น = prepend พร้อมไฟเขียววาบ — เห็น "ทั้งเครื่องกำลังคิดอะไร" แบบเกือบสด
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmtTs = (t) => t ? new Date(t).toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';  // GMT+7 เสมอ
+const seen = new Set();
+let paused = false, timer = null, lastImport = 0;
+
+$('#pause').onclick = () => {
+  paused = !paused;
+  $('#pause').setAttribute('aria-pressed', paused);
+  $('#pause').textContent = paused ? '▶ ต่อ' : '⏸ พัก';
+  $('#dot').classList.toggle('live', !paused);
+  if (!paused) tick();
+};
+$('#frepo').addEventListener('change', () => { seen.clear(); $('#feed').innerHTML = ''; tick(); });
+
+function render(r, fresh) {
+  const el = document.createElement('div');
+  el.className = 'row' + (fresh ? ' fresh' : '');
+  el.innerHTML = `
+    <div class="kind"><div class="t ${r.kind} ${r.role ?? ''}">${r.kind === 'tool_use' ? esc(r.tool || 'tool') : r.kind}</div>
+      <div class="when">${fmtTs(r.ts)}</div></div>
+    <div>
+      <div class="h"><span>📦 ${esc(r.repo ?? '')}</span>
+        <span>${esc((r.session ?? '').slice(0, 22))}#${r.line}</span><span>${r.tier ?? ''}</span></div>
+      <div class="t2">${esc(String(r.text ?? '').slice(0, 420))}</div>
+    </div>`;
+  el.onclick = () => openDrill(r);
+  return el;
+}
+
+// คลิกแถว = อ่านเต็ม (ดึงจาก db — feed เก็บแค่ 400 chars)
+async function openDrill(r) {
+  const d = $('#drill');
+  d.hidden = false;
+  d.innerHTML = `<button onclick="this.parentElement.hidden=true">✕ close</button>
+    <div class="m">📦 ${esc(r.repo ?? '')} · ${esc(r.kind)}${r.tool ? ' · ' + esc(r.tool) : ''} · ${esc(r.role ?? '')}
+      · ${esc(r.ts ? new Date(r.ts).toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }) : '')}<br>${esc(r.session)}#${r.line} · ${esc(r.tier ?? '')}${r.model ? ' · ' + esc(r.model) : ''}</div>
+    <pre>กำลังโหลด…</pre>`;
+  try {
+    const ev = await (await fetch(`/api/event?id=${encodeURIComponent(r.id)}`)).json();
+    d.querySelector('pre').textContent = ev.text ?? ev.error ?? '—';
+  } catch (e) { d.querySelector('pre').textContent = 'โหลดไม่ได้: ' + e; }
+  d.scrollTop = 0;
+}
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('#drill').hidden = true; });
+
+async function tick() {
+  if (paused) return;
+  clearTimeout(timer);
+  try {
+    // backfill ทุก 20s — เร็วเพราะ manifest ข้ามไฟล์ที่ไม่เปลี่ยน
+    if (Date.now() - lastImport > 20000) {
+      lastImport = Date.now();
+      $('#stat').textContent = 'backfill…';
+      await fetch('/api/import', { method: 'POST' }).catch(() => {});
+      // รอ job จบ (import backfill ~0.2-2s)
+      for (let i = 0; i < 20; i++) {
+        const j = await (await fetch('/api/job-log?name=import&from=0')).json().catch(() => null);
+        if (!j || !j.running) break;
+        await new Promise((r) => setTimeout(r, 500));
+      }
+    }
+    const repo = $('#frepo').value.trim();
+    const p = new URLSearchParams({ q: '', fresh: '1' });   // ยิงตรงตาราง — ไม่ผ่าน cache ที่ตามหลัง
+    if (repo) p.set('repo', repo);
+    const d = await (await fetch('/api/search?' + p)).json();
+    const feed = $('#feed');
+    $('#empty')?.remove();
+    const rows = (d.rows ?? []).slice(0, 60);
+    let added = 0;
+    // เดินจากเก่าไปใหม่ เพื่อ prepend แล้วลำดับบนสุด = ใหม่สุด
+    for (const r of [...rows].reverse()) {
+      if (seen.has(r.id)) continue;
+      seen.add(r.id);
+      feed.prepend(render(r, seen.size > 60));  // รอบแรกไม่ต้องวาบทั้งหน้า
+      added++;
+    }
+    while (feed.children.length > 200) feed.lastChild.remove();
+    const top = rows[0]?.ts ? new Date(rows[0].ts) : null;
+    const lag = top ? Math.round((Date.now() - top.getTime()) / 1000) : null;
+    $('#stat').textContent = `${new Date().toTimeString().slice(0, 8)} · +${added} ใหม่ · แสดง ${feed.children.length}` +
+      (lag !== null ? ` · ล่าสุดใน index: ${lag < 90 ? lag + 's' : Math.round(lag/60) + 'm'} ที่แล้ว` : '');
+  } catch (e) { $('#stat').textContent = '✗ ' + e; }
+  timer = setTimeout(tick, 6000);
+}
+tick();
+</script>
+</body>
+</html>
