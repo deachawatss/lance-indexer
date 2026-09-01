@@ -5,6 +5,10 @@ Every visible record is deterministic synthetic fixture data; the deployment has
 only Cloudflare's static `ASSETS` binding—no database, KV, D1, R2, storage,
 secrets, telemetry, or access to local files.
 
+![Animated overview of every public screen](./lance-indexer-demo.gif)
+
+The GIF holds each screen for two seconds. Individual full-size captures follow.
+
 ## Search
 
 ![Search: hybrid result list with corpus counts and facets](./screenshots/search.png)

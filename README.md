@@ -5,6 +5,11 @@
 
 **[Open the public static fixture demo](https://lance-indexer-fixture-demo.laris.workers.dev/)**
 
+![Lance Indexer public demo — Search, Map, Insight, Live, and Jobs](docs/lance-indexer-demo.gif)
+
+The animated overview above cycles through every public screen (two seconds per
+screen); the full-size stills are shown below.
+
 The public demo is the real browser UI with **720 bundled synthetic blocks**.
 It has no KV, D1, R2, database binding, filesystem access, secret, telemetry,
 or persistence. Import and embedding controls are deterministic simulations.
