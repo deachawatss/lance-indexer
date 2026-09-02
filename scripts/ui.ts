@@ -390,6 +390,9 @@ Bun.serve({
           took: { embed: tE - t0, search: tS - tE, llm: Date.now() - tS, total: Date.now() - t0 },
         });
       }
+      // สคริปต์ร่วมของทุกหน้า — ตารางคำสองภาษา ต้องเสิร์ฟจริง ไม่งั้นหน้าเว็บโหลดไม่เจอ
+      if (u.pathname === "/i18n.js")
+        return new Response(Bun.file(fileURLToPath(new URL("../ui/i18n.js", import.meta.url))));
       // viz plugins: ไฟล์ js ใน ui/viz — เพิ่ม plugin = วางไฟล์ ไม่ต้องแตะ server
       if (u.pathname.startsWith("/viz/")) {
         const base = fileURLToPath(new URL("../ui/viz/", import.meta.url));
