@@ -342,18 +342,18 @@ Bun.serve({
       if (u.pathname === "/api/insight" && req.method === "POST") {
         const body = await req.json().catch(() => ({}));
         const q = String(body.q ?? "").trim();
-        if (!q) return json({ error: "ถามอะไรดี?" }, 400);
+        if (!q) return json({ error: "ASK_SOMETHING" }, 400);
         const k = Math.max(4, Math.min(24, Number(body.k ?? 12)));
         const repo = String(body.repo ?? "").trim();
         const model = String(body.model ?? process.env.INSIGHT_MODEL ?? "qwen2.5:7b");
         const llmUrl = process.env.INSIGHT_URL ?? "http://localhost:18434"; // gpu1 ผ่าน ssh tunnel
         const vt = await vectorsTable();
-        if (!vt) return json({ error: "ยังไม่มี vectors — embed ก่อน" }, 409);
+        if (!vt) return json({ error: "NO_VECTORS" }, 409);
         const t0 = Date.now();
         const er = await fetch(`${OLLAMA}/api/embed`, {
           method: "POST", body: JSON.stringify({ model: "bge-m3", input: [q] }),
         });
-        if (!er.ok) return json({ error: `embed: ollama ${er.status}` }, 502);
+        if (!er.ok) return json({ error: "EMBED_FAILED", status: er.status }, 502);
         const qv = ((await er.json()) as any).embeddings[0] as number[];
         const tE = Date.now();
         let hits = await (await vt).vectorSearch(qv).limit(repo ? k * 4 : k).toArray() as any[];
@@ -380,7 +380,7 @@ Bun.serve({
             ],
           }),
         });
-        if (!lr.ok) return json({ error: `llm: ${lr.status} ${await lr.text()}` }, 502);
+        if (!lr.ok) return json({ error: "LLM_FAILED", status: lr.status, detail: await lr.text() }, 502);
         const lj = (await lr.json()) as any;
         let answer = String(lj.message?.content ?? "");
         answer = answer.replace(/<think>[\s\S]*?<\/think>/g, "").trim(); // qwen3 คิดในใจ — ตัดทิ้ง
@@ -415,12 +415,13 @@ Bun.serve({
         const scope = repo ? new Set([repo]) : group ? reposInGroup(group) : null;
         const vt = await vectorsTable();
         const nVec = vt ? await (await vt).countRows() : 0;
-        if (!nVec) return json({ error: "no vectors yet — run: just embed" }, 409);
+        if (!nVec) return json({ error: "NO_VECTORS" }, 409);
         const key = `${nVec}:${repo}:${group}:${limit}`;
         let body = mapCache.get(key);
         if (body === undefined) {
           const g = await buildMap(limit, scope);
-          if (!g) return json({ error: "not enough vectors" + (repo ? ` ใน repo ${repo}` : group ? ` ใน group ${group}` : "") }, 409);
+          // เดิมข้อความนี้ประกอบครึ่งอังกฤษครึ่งไทยคร่อม client/server — ตอนนี้เป็นโค้ดเดียว scope เป็นพารามิเตอร์
+          if (!g) return json({ error: "NOT_ENOUGH_VECTORS", scope: repo || group || "" }, 409);
           body = JSON.stringify({ ...g, repo, group });
           if (mapCache.size >= MAP_CACHE_MAX) mapCache.delete(mapCache.keys().next().value!);
           mapCache.set(key, body);
@@ -432,10 +433,10 @@ Bun.serve({
       // repo context: สถิติ / topics (summaries+tools) / memory distance (centroid ต่อ repo)
       if (u.pathname === "/api/repo") {
         const name = u.searchParams.get("name") ?? "";
-        if (!name) return json({ error: "name?" }, 400);
+        if (!name) return json({ error: "NAME_REQUIRED" }, 400);
         const rows = await events.query().where(`repo = '${esc(name)}'`)
           .select(["session", "file", "kind", "role", "tier", "tool", "ts", "text", "n_chars"]).toArray() as any[];
-        if (!rows.length) return json({ error: "ไม่พบ repo นี้" }, 404);
+        if (!rows.length) return json({ error: "REPO_NOT_FOUND", name }, 404);
         const kinds: any = {}, tools: any = {}, days: any = {};
         const sess = new Set<string>();
         let first = "", last = "";
@@ -511,11 +512,11 @@ Bun.serve({
           const done = vt ? await (await vt).countRows() : 0;
           return json({ name, candidates, embedded: done, remaining: Math.max(0, candidates - done) });
         }
-        return json({ error: "unknown preflight" }, 400);
+        return json({ error: "UNKNOWN_PREFLIGHT", name }, 400);
       }
       if (u.pathname === "/api/import" && req.method === "POST") {
         const j = runJob("import", ["import.ts"], async () => { agg = await aggregate(); mapCache.clear(); });
-        return json({ started: !!j, id: j?.id, note: j ? "import วิ่งแล้ว" : "import กำลังวิ่งอยู่แล้ว" }, j ? 200 : 409);
+        return json({ started: !!j, id: j?.id, note: j ? "JOB_STARTED" : "JOB_ALREADY_RUNNING", name: "import" }, j ? 200 : 409);
       }
       if (u.pathname === "/api/embed" && req.method === "POST") {
         const n = Math.max(1, Math.min(100000, Number(u.searchParams.get("n") ?? 2000)));
@@ -523,15 +524,15 @@ Bun.serve({
         const GPU_URLS = "http://localhost:11434,http://localhost:18434,http://localhost:18435";
         const env = u.searchParams.get("gpus") ? { OLLAMA_URLS: GPU_URLS } : undefined;
         const j = runJob("embed", ["embed.ts", String(n)], async () => { mapCache.clear(); }, env);
-        return json({ started: !!j, id: j?.id, n, gpus: !!env, note: j ? "embed วิ่งแล้ว" : "embed กำลังวิ่งอยู่แล้ว" }, j ? 200 : 409);
+        return json({ started: !!j, id: j?.id, n, gpus: !!env, note: j ? "JOB_STARTED" : "JOB_ALREADY_RUNNING", name: "embed" }, j ? 200 : 409);
       }
       // kill: หยุดงานที่วิ่งอยู่ — ปลอดภัยเพราะ import idempotent / embed incremental (รันใหม่ต่อจากเดิม)
       if (u.pathname === "/api/job-kill" && req.method === "POST") {
         const id = Number(u.searchParams.get("id") ?? 0);
         const j = id ? jobList.find((x) => x.id === id) : activeByName(u.searchParams.get("name") ?? "");
-        if (!j) return json({ error: "no such job" }, 404);
-        if (!j.running) return json({ error: "ไม่ได้วิ่งอยู่" }, 409);
-        j.lines.push("■ ถูกสั่งหยุด (SIGTERM) — งานนี้รันใหม่ต่อจากเดิมได้");
+        if (!j) return json({ error: "JOB_NOT_FOUND" }, 404);
+        if (!j.running) return json({ error: "JOB_NOT_RUNNING" }, 409);
+        j.lines.push("■ SIGTERM — this job resumes where it stopped");
         j.proc?.kill();
         return json({ killed: true, id: j.id });
       }
@@ -539,7 +540,7 @@ Bun.serve({
       if (u.pathname === "/api/job-log") {
         const id = Number(u.searchParams.get("id") ?? 0);
         const j = id ? jobList.find((x) => x.id === id) : latestByName(u.searchParams.get("name") ?? "");
-        if (!j) return json({ error: "no such job" }, 404);
+        if (!j) return json({ error: "JOB_NOT_FOUND" }, 404);
         const from = Math.max(Number(u.searchParams.get("from") ?? 0), j.offset);
         return json({
           id: j.id, name: j.name, running: j.running, code: j.code,
@@ -590,13 +591,13 @@ Bun.serve({
         const rows = await events.query().where(`id = '${esc(id)}'`)
           .select(["line", "idx", "kind", "role", "tool", "model", "repo", "ts", "n_chars", "text"])
           .limit(1).toArray() as any[];
-        return json(rows[0] ?? { error: "not found" }, rows[0] ? 200 : 404);
+        return json(rows[0] ?? { error: "NOT_FOUND" }, rows[0] ? 200 : 404);
       }
       if (u.pathname === "/api/raw") {
         const file = u.searchParams.get("file") ?? "";
         const line = Number(u.searchParams.get("line") ?? 0);
         const raw = await rawLine(file, line);
-        return raw === null ? json({ error: "not found" }, 404)
+        return raw === null ? json({ error: "NOT_FOUND" }, 404)
           : new Response(raw, { headers: { "content-type": "application/json" } });
       }
       if (u.pathname === "/api/search") {
@@ -671,12 +672,12 @@ Bun.serve({
         }
         if (mode === "vector") {
           const rows = await vecSearch(60);
-          if (!rows) return json({ error: "no vectors yet — run: just embed" }, 409);
+          if (!rows) return json({ error: "NO_VECTORS" }, 409);
           return json({ mode, n: rows.length, took: { total: Date.now() - t0 }, rows });
         }
         // hybrid: RRF k=60 — โหมดให้เลือก ไม่ใช่ default (eval haos: known-item fts เดี่ยวชนะ)
         const [tr, vr] = await Promise.all([textSearch(100), vecSearch(60)]);
-        if (!vr) return json({ error: "hybrid ต้องมี vectors — run: just embed" }, 409);
+        if (!vr) return json({ error: "HYBRID_NEEDS_VECTORS" }, 409);
         const K = 60;
         const fused = new Map<string, any>();
         tr.forEach((r, i) => fused.set(r.id, { ...r, ftsRank: i + 1, score: 1 / (K + i + 1) }));
@@ -690,7 +691,7 @@ Bun.serve({
       }
       return new Response("not found", { status: 404 });
     } catch (e: any) {
-      return json({ error: String(e?.message ?? e) }, 500);
+      return json({ error: "SERVER_ERROR", detail: String(e?.message ?? e) }, 500);
     }
   },
 });

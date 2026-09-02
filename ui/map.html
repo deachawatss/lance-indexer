@@ -153,7 +153,7 @@ const host = {
       <div class="pv">${nd._pv ? esc(String(nd._pv).slice(0, 420)) : '…'}</div>`;
     if (!nd._pv) {
       fetch(`/api/event?id=${encodeURIComponent(nd.id)}`).then((r) => r.json()).then((ev) => {
-        nd._pv = ev.text ?? ev.error ?? '—';
+        nd._pv = ev.text ?? tsrv(ev) ?? '—';
         if (hv._i === i) { const p = hv.querySelector('.pv'); if (p) p.textContent = String(nd._pv).slice(0, 420); }
       }).catch(() => {});
     }
@@ -224,7 +224,7 @@ async function openDetail(nd) {
       if (!n._pv) {
         n._pv = t('common.loading');
         fetch(`/api/event?id=${encodeURIComponent(n.id)}`).then((r) => r.json())
-          .then((ev) => { n._pv = ev.text ?? ev.error ?? '—'; const p = el.querySelector('.pv'); if (p) p.textContent = String(n._pv).slice(0, 600); })
+          .then((ev) => { n._pv = ev.text ?? tsrv(ev) ?? '—'; const p = el.querySelector('.pv'); if (p) p.textContent = String(n._pv).slice(0, 600); })
           .catch(() => { n._pv = t('map.loadFailedShort'); });
       }
       el.querySelector('.pv').textContent = String(n._pv).slice(0, 600);
@@ -234,7 +234,7 @@ async function openDetail(nd) {
   });
   try {
     const ev = await (await fetch(`/api/event?id=${encodeURIComponent(nd.id)}`)).json();
-    if (ev.error) { box.querySelector('.bd').textContent = ev.error; return; }
+    if (ev.error) { box.querySelector('.bd').textContent = tsrv(ev); return; }
     box.querySelector('.bd').innerHTML =
       `<div class="m" style="color:var(--dim);font-size:11px;margin-bottom:8px">
         ${esc(ev.kind)}${ev.tool ? ' · ' + esc(ev.tool) : ''} · ${esc(ev.role)} · ${esc(ev.repo)}
@@ -291,7 +291,7 @@ async function boot() {
   const q = REPO ? `?repo=${encodeURIComponent(REPO)}` : GROUP ? `?group=${encodeURIComponent(GROUP)}` : '';
   const res = await fetch('/api/map' + q);
   const d = await res.json();
-  if (d.error) { $('#err').hidden = false; $('#err').textContent = d.error; $('#stats').textContent = '—'; return; }
+  if (d.error) { $('#err').hidden = false; $('#err').textContent = tsrv(d); $('#stats').textContent = '—'; return; }
   host.G = d;
   if (REPO) $('#repochip').textContent = ` · 📦 ${REPO}`;
   else if (GROUP) $('#repochip').textContent = ` · 🗂 ${GROUP}`;

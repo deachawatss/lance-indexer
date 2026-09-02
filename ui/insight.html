@@ -124,7 +124,7 @@ async function ask() {
       body: JSON.stringify({ q, k: Number($('#k').value), repo: $('#repo').value.trim(), model: $('#model').value }),
     })).json();
     clearInterval(tick);
-    if (d.error) { $('#status').textContent = '✗ ' + d.error; return; }
+    if (d.error) { $('#status').textContent = '✗ ' + tsrv(d); return; }
     $('#status').textContent = `${d.model} · embed ${d.took.embed}ms · search ${d.took.search}ms · llm ${(d.took.llm/1000).toFixed(1)}s`;
     // อ้าง [n] คลิกได้ → ไฮไลต์หลักฐาน
     $('#answer').innerHTML = esc(d.answer).replace(/\[(\d+)\]/g, '<span class="cite" data-n="$1">[$1]</span>');

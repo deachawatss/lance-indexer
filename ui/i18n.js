@@ -105,6 +105,24 @@
       "walk.start": "start",
       "walk.step": "step {k}",
       "walk.score": "score {score}",
+      "srv.ASK_SOMETHING": "What would you like to ask?",
+      "srv.NO_VECTORS": "no vectors yet — run: just embed",
+      "srv.EMBED_FAILED": "embedding failed: ollama {status}",
+      "srv.LLM_FAILED": "the model failed: {status} {detail}",
+      "srv.NOT_ENOUGH_VECTORS": "not enough vectors",
+      "srv.NOT_ENOUGH_VECTORS_SCOPED": "not enough vectors in {scope}",
+      "srv.NAME_REQUIRED": "which name?",
+      "srv.REPO_NOT_FOUND": "no such repo: {name}",
+      "srv.UNKNOWN_PREFLIGHT": "unknown preflight: {name}",
+      "srv.JOB_STARTED": "{name} is running",
+      "srv.JOB_ALREADY_RUNNING": "{name} is already running",
+      "srv.JOB_NOT_FOUND": "no such job",
+      "srv.JOB_NOT_RUNNING": "that job is not running",
+      "srv.NOT_FOUND": "not found",
+      "srv.HYBRID_NEEDS_VECTORS": "hybrid needs vectors — run: just embed",
+      "srv.SERVER_ERROR": "server error: {detail}",
+      "srv.DEMO_JOBS_IMMUTABLE": "the static demo's jobs cannot be changed",
+      "srv.UNKNOWN": "unexpected server code: {error}",
     },
     th: {
       "nav.search": "🔍 ค้นหา",
@@ -205,6 +223,24 @@
       "walk.start": "เริ่ม",
       "walk.step": "ก้าว {k}",
       "walk.score": "คะแนน {score}",
+      "srv.ASK_SOMETHING": "ถามอะไรดี?",
+      "srv.NO_VECTORS": "ยังไม่มี vectors — รัน: just embed",
+      "srv.EMBED_FAILED": "embed ไม่สำเร็จ: ollama {status}",
+      "srv.LLM_FAILED": "โมเดลไม่ตอบ: {status} {detail}",
+      "srv.NOT_ENOUGH_VECTORS": "vectors ไม่พอ",
+      "srv.NOT_ENOUGH_VECTORS_SCOPED": "vectors ไม่พอใน {scope}",
+      "srv.NAME_REQUIRED": "ชื่ออะไร?",
+      "srv.REPO_NOT_FOUND": "ไม่พบ repo นี้: {name}",
+      "srv.UNKNOWN_PREFLIGHT": "ไม่รู้จัก preflight: {name}",
+      "srv.JOB_STARTED": "{name} วิ่งแล้ว",
+      "srv.JOB_ALREADY_RUNNING": "{name} กำลังวิ่งอยู่แล้ว",
+      "srv.JOB_NOT_FOUND": "ไม่มีงานนี้",
+      "srv.JOB_NOT_RUNNING": "งานนี้ไม่ได้วิ่งอยู่",
+      "srv.NOT_FOUND": "ไม่เจอ",
+      "srv.HYBRID_NEEDS_VECTORS": "hybrid ต้องมี vectors — รัน: just embed",
+      "srv.SERVER_ERROR": "server error: {detail}",
+      "srv.DEMO_JOBS_IMMUTABLE": "งานของ demo แบบ static แก้ไม่ได้",
+      "srv.UNKNOWN": "โค้ดที่ server ส่งมาไม่รู้จัก: {error}",
     },
   };
 
@@ -257,7 +293,18 @@
     if (doc.documentElement) doc.documentElement.lang = lang;
   }
 
-  root.i18n = { t, use, setLang, apply, stored, TABLES, DEFAULT, get lang() { return lang; } };
+  // ข้อความจาก server มาเป็นโค้ดคงที่ ฝั่งเบราว์เซอร์เป็นเจ้าของถ้อยคำ — กลไกเดียวตลอดเส้นทาง
+  // โค้ดที่ไม่รู้จักต้องเห็นได้ ไม่ใช่ช่องว่าง
+  function tsrv(payload) {
+    const code = payload?.error ?? payload?.note ?? "";
+    if (!code) return "";
+    const key = code === "NOT_ENOUGH_VECTORS" && payload.scope ? "srv.NOT_ENOUGH_VECTORS_SCOPED" : `srv.${code}`;
+    const table = TABLES[lang][key] ?? TABLES[DEFAULT][key];
+    return table === undefined ? t("srv.UNKNOWN", { error: code }) : t(key, payload);
+  }
+
+  root.i18n = { t, tsrv, use, setLang, apply, stored, TABLES, DEFAULT, get lang() { return lang; } };
   root.t = t;
+  root.tsrv = tsrv;
   if (root.document) root.document.addEventListener("DOMContentLoaded", () => apply());
 })(typeof globalThis !== "undefined" ? globalThis : self);

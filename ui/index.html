@@ -288,7 +288,7 @@ async function toggleRepoCtx() {
   box.hidden = false;
   box.innerHTML = `<p class="m">${esc(t('common.loading'))}</p>`;
   const d = await (await fetch(`/api/repo?name=${encodeURIComponent(filter.repo)}`)).json();
-  if (d.error) { box.innerHTML = `<p class="m">${esc(d.error)}</p>`; return; }
+  if (d.error) { box.innerHTML = `<p class="m">${esc(tsrv(d))}</p>`; return; }
   const maxDay = Math.max(...d.days.map(([, n]) => n), 1);
   box.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:start">
@@ -355,7 +355,7 @@ async function launchJob(name) {
   if (!d.started) {
     // 409 = งานชนิดนี้วิ่งอยู่แล้ว (อาจสั่งจาก tab อื่น) — เกาะดู log ของมันแทน
     jobState.watching = name; jobState.from = 0;
-    jobState.buf = [t('job.alreadyRunning', { name, note: d.note ?? t('job.runningNote') })];
+    jobState.buf = [t('job.alreadyRunning', { name, note: tsrv(d) || t('job.runningNote') })];
   } else {
     jobState.watching = name; jobState.from = 0;
     jobState.buf = [`$ bun ${name}.ts${name === 'embed' ? ' 2000' : ''}`];
@@ -442,7 +442,7 @@ async function search() {
   const p = new URLSearchParams({ q, mode, ...Object.fromEntries(Object.entries(filter).filter(([, v]) => v)) });
   const d = await (await fetch('/api/search?' + p)).json();
   if (my !== seqNo) return;
-  if (d.error) { $('#took').textContent = '—'; $('#results').innerHTML = `<div id="empty">${esc(d.error)}</div>`; return; }
+  if (d.error) { $('#took').textContent = '—'; $('#results').innerHTML = `<div id="empty">${esc(tsrv(d))}</div>`; return; }
   const tk = d.took ?? {};
   $('#took').textContent = `${d.n} rows · ` + (tk.db != null ? `${tk.db}ms db · ` : '') + `${tk.total}ms · ${d.mode}`;
   $('#results').innerHTML = d.rows.length ? d.rows.map((r) => `

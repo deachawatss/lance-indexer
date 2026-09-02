@@ -131,7 +131,7 @@ async function openDrill(r) {
     <pre>${esc(t('common.loading'))}</pre>`;
   try {
     const ev = await (await fetch(`/api/event?id=${encodeURIComponent(r.id)}`)).json();
-    d.querySelector('pre').textContent = ev.text ?? ev.error ?? '—';
+    d.querySelector('pre').textContent = ev.text ?? tsrv(ev) ?? '—';
   } catch (e) { d.querySelector('pre').textContent = t('common.loadFailed', { error: e }); }
   d.scrollTop = 0;
 }

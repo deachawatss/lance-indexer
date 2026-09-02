@@ -148,7 +148,7 @@ async function poll() {
   if (selected === null) return;
   try {
     const d = await (await fetch(`/api/job-log?id=${selected}&from=${from}`)).json();
-    if (d.error) { $('#ttitle').textContent = d.error; return; }
+    if (d.error) { $('#ttitle').textContent = tsrv(d); return; }
     $('#ttitle').textContent = `#${d.id} ${d.name} ${d.running ? t('job.running') : `· exit ${d.code}`}`;
     $('#tdot').className = `dot ${d.running ? 'live' : d.code === 0 ? 'ok' : 'bad'}`;
     $('#tkill').hidden = !d.running;

@@ -8,6 +8,7 @@ const i18n = (globalThis as any).i18n as {
   t: (k: string, p?: Record<string, unknown>) => string;
   use: (l: string) => string;
   stored: () => string;
+  tsrv: (payload?: Record<string, unknown>) => string;
   lang: string;
   DEFAULT: string;
   TABLES: Record<string, Record<string, string>>;
@@ -78,6 +79,47 @@ describe("the stored preference", () => {
   test("falls back to the default when storage holds an unknown language", () => {
     swap({ getItem: () => "fr", setItem: () => {} });
     expect(i18n.stored()).toBe("en");
+  });
+});
+
+describe("tsrv — server codes rendered by the browser", () => {
+  test("renders a code in English", () => {
+    expect(i18n.tsrv({ error: "NO_VECTORS" })).toBe("no vectors yet — run: just embed");
+  });
+
+  test("renders the same code in Thai", () => {
+    i18n.use("th");
+    expect(i18n.tsrv({ error: "NO_VECTORS" })).toBe("ยังไม่มี vectors — รัน: just embed");
+  });
+
+  test("passes the payload in as parameters", () => {
+    expect(i18n.tsrv({ error: "REPO_NOT_FOUND", name: "odoo-nwf" })).toBe("no such repo: odoo-nwf");
+  });
+
+  // ข้อความเดิมประกอบครึ่งอังกฤษครึ่งไทยคร่อม client/server — ตอนนี้เป็นโค้ดเดียว scope เป็นพารามิเตอร์
+  test("the once half-English half-Thai message is one code with a parameter", () => {
+    expect(i18n.tsrv({ error: "NOT_ENOUGH_VECTORS", scope: "NWFTH-Software" }))
+      .toBe("not enough vectors in NWFTH-Software");
+    i18n.use("th");
+    expect(i18n.tsrv({ error: "NOT_ENOUGH_VECTORS", scope: "NWFTH-Software" }))
+      .toBe("vectors ไม่พอใน NWFTH-Software");
+  });
+
+  test("the same code with no scope reads as the unscoped sentence", () => {
+    expect(i18n.tsrv({ error: "NOT_ENOUGH_VECTORS", scope: "" })).toBe("not enough vectors");
+  });
+
+  test("a job note is a code too", () => {
+    expect(i18n.tsrv({ note: "JOB_ALREADY_RUNNING", name: "embed" })).toBe("embed is already running");
+  });
+
+  test("an unrecognised code degrades visibly", () => {
+    expect(i18n.tsrv({ error: "WAT" })).toBe("unexpected server code: WAT");
+  });
+
+  test("a body with no code renders nothing rather than throwing", () => {
+    expect(i18n.tsrv({})).toBe("");
+    expect(i18n.tsrv(undefined)).toBe("");
   });
 });
 
