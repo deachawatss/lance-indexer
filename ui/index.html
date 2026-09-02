@@ -226,7 +226,6 @@
 
 <script>
 const $ = (s) => document.querySelector(s);
-const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const fmtTs = (t) => t ? new Date(t).toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';  // GMT+7 เสมอ
 let mode = 'text';
 const GROUPS = ['kind', 'role', 'tier', 'repo', 'tool', 'model'];

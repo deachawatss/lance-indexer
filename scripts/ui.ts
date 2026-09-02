@@ -395,6 +395,11 @@ Bun.serve({
           took: { embed: tE - t0, search: tS - tE, llm: Date.now() - tS, total: Date.now() - t0 },
         });
       }
+      // ui/demo.js ติดป้าย "STATIC FIXTURE" ให้ demo สาธารณะ — เสิร์ฟตัวจริงที่นี่คือโกหกว่าข้อมูลเป็นของปลอม
+      // เดิมปล่อย 404 ป้ายเลยไม่ขึ้น (ถูกแล้ว) แต่ console แดงทุกครั้งที่เปิดหน้า จนบัง error จริง — ตอบว่างแทน
+      if (u.pathname === "/demo.js")
+        return new Response("/* the fixture badge belongs to the public demo worker, not to the local server */",
+          { headers: { "content-type": "text/javascript" } });
       // สคริปต์ร่วมของทุกหน้า — ตารางคำสองภาษา ต้องเสิร์ฟจริง ไม่งั้นหน้าเว็บโหลดไม่เจอ
       if (u.pathname === "/i18n.js")
         return new Response(Bun.file(fileURLToPath(new URL("../ui/i18n.js", import.meta.url))));

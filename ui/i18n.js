@@ -312,7 +312,11 @@
     return s.startsWith(SRV_LINE) ? tsrv({ error: s.slice(SRV_LINE.length) }) : s;
   }
 
-  root.i18n = { t, tsrv, srvLine, use, setLang, apply, stored, TABLES, DEFAULT, get lang() { return lang; } };
+  // ทุกหน้าเคยประกาศ esc ของตัวเองเหมือนกันเป๊ะ 4 ชุด — สคริปต์นี้โหลดทุกหน้าอยู่แล้ว ย้ายมาไว้ที่เดียว
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+  root.i18n = { t, tsrv, srvLine, esc, use, setLang, apply, stored, TABLES, DEFAULT, get lang() { return lang; } };
+  root.esc = esc;
   root.t = t;
   root.tsrv = tsrv;
   root.srvLine = srvLine;

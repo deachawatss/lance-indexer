@@ -129,7 +129,6 @@
 <script>
 // ── host: โหลดข้อมูล + คุม state + detail — ตัววาดเป็น plugin ใน /viz/*.js สลับได้ ──
 const $ = (s) => document.querySelector(s);
-const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const plugins = {};
 window.registerViz = (p) => { plugins[p.id] = p; };
 
@@ -168,10 +167,16 @@ const host = {
 
 let active = null, namesTouched = false;
 const PARAMS = new URLSearchParams(location.search);
-const REPO = PARAMS.get('repo') ?? '';
-const GROUP = PARAMS.get('group') ?? '';
 i18n.apply();
-const SCOPE_LABEL = REPO || GROUP || t('map.wholeMachine');
+// ขอบเขตแผนที่มีรูปเดียว: repo เดี่ยว / ทั้ง group / ว่าง = ทั้งเครื่อง
+// กติกาอยู่ที่นี่ที่เดียว เมื่อก่อนกระจาย 4 ที่แล้วเพี้ยนกันได้
+const SCOPE = PARAMS.get('repo') ? { kind: 'repo', name: PARAMS.get('repo') }
+            : PARAMS.get('group') ? { kind: 'group', name: PARAMS.get('group') } : null;
+const scopeQuery = (sc) => sc ? `?${sc.kind}=${encodeURIComponent(sc.name)}` : '';
+const scopeOption = (sc) => sc ? `${sc.kind[0]}:${sc.name}` : '';
+const scopeFromOption = (v) => v.startsWith('r:') ? { kind: 'repo', name: v.slice(2) }
+                             : v.startsWith('g:') ? { kind: 'group', name: v.slice(2) } : null;
+const SCOPE_LABEL = SCOPE ? SCOPE.name : t('map.wholeMachine');
 
 // dropdown ขอบเขต: repo ซ้อนใต้ group ด้วย optgroup — เลือกกลุ่มคือเลือกทุก repo ในกลุ่มนั้น
 async function buildScope() {
@@ -185,13 +190,8 @@ async function buildScope() {
        <option value="g:${esc(g.group)}">${esc(t('map.wholeGroup'))} · ${n(g.blocks)}</option>
        ${g.repos.map((r) => `<option value="r:${esc(r.repo)}">${esc(r.repo)} · ${n(r.blocks)}</option>`).join('')}
      </optgroup>`).join('');
-  sel.value = REPO ? `r:${REPO}` : GROUP ? `g:${GROUP}` : '';
-  sel.onchange = () => {
-    const v = sel.value;
-    const q = v.startsWith('r:') ? `?repo=${encodeURIComponent(v.slice(2))}`
-            : v.startsWith('g:') ? `?group=${encodeURIComponent(v.slice(2))}` : '';
-    location.href = '/map' + q;
-  };
+  sel.value = scopeOption(SCOPE);
+  sel.onchange = () => { location.href = '/map' + scopeQuery(scopeFromOption(sel.value)); };
 }
 
 async function openDetail(nd) {
@@ -288,13 +288,11 @@ async function boot() {
   markTabs(want);
 
   buildScope();
-  const q = REPO ? `?repo=${encodeURIComponent(REPO)}` : GROUP ? `?group=${encodeURIComponent(GROUP)}` : '';
-  const res = await fetch('/api/map' + q);
+  const res = await fetch('/api/map' + scopeQuery(SCOPE));
   const d = await res.json();
   if (d.error) { $('#err').hidden = false; $('#err').textContent = tsrv(d); $('#stats').textContent = '—'; return; }
   host.G = d;
-  if (REPO) $('#repochip').textContent = ` · 📦 ${REPO}`;
-  else if (GROUP) $('#repochip').textContent = ` · 🗂 ${GROUP}`;
+  if (SCOPE) $('#repochip').textContent = ` · ${SCOPE.kind === 'repo' ? '📦' : '🗂'} ${SCOPE.name}`;
   host.adj = new Map();
   for (const e of d.edges) {
     if (!host.adj.has(e.s)) host.adj.set(e.s, new Set());
@@ -305,7 +303,7 @@ async function boot() {
   const brN = d.edges.filter(e => e.kind === 'bridge').length;
   $('#stats').textContent =
     t('map.statPoints', { shown: `${d.sampled}${d.totalVectors > d.sampled ? `/${d.totalVectors}` : ''}` }) +
-    (REPO || GROUP ? t('map.statScope', { scope: SCOPE_LABEL }) : t('map.statWhole')) +
+    (SCOPE ? t('map.statScope', { scope: SCOPE_LABEL }) : t('map.statWhole')) +
     ` · k=${d.k}` +
     t('map.statExplained', { pct: Math.round(d.explained * 100) }) +
     ` · ${simN} similar + ${brN} bridge` +
