@@ -41,7 +41,8 @@ async function aggregate(): Promise<Agg> {
     if (org && repo) {
       const k = `${org}\n${repo}`, ts = r.ts ?? "";
       if (ts > (seen.get(k) ?? "")) seen.set(k, ts);
-    } else ungrouped++;
+    }
+    if (!repo) ungrouped++;
     byId.set(r.id, { kind: r.kind, role: r.role, tier: r.tier, repo: r.repo, tool: r.tool, model: r.model, ts: r.ts });
   }
   const sightings: Sighting[] = [...seen].map(([k, lastSeen]) => {
@@ -72,8 +73,10 @@ console.log(`aggregate: ${agg.stats.rows} blocks, ${agg.stats.sessions} files, $
 // group → รายชื่อ repo ในกลุ่ม — ขยายในหน่วยความจำล้วน ไม่เคยกลายเป็น query clause
 // (ชื่อ group มาจาก request parameter ที่ผู้ใช้คุมได้ ส่วน where ที่นี่ต่อสตริงเอา)
 function reposInGroup(group: string): Set<string> {
-  if (group === UNGROUPED) return new Set([""]);
-  return new Set([...agg.groups].filter(([, g]) => g === group).map(([repo]) => repo));
+  const named = new Set(
+    Object.keys(agg.repos as Record<string, number>).filter((repo) => groupOf(repo, agg.groups) === group));
+  if (group === UNGROUPED) named.add("");   // แถวที่ derive ชื่อ repo ไม่ได้เลย
+  return named;
 }
 // รายการสำหรับ dropdown ของแผนที่: repo ซ้อนใต้ group พร้อมจำนวน block ต่อรายการ
 function groupList() {

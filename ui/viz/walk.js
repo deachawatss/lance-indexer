@@ -33,13 +33,13 @@
   }
   function renderPanel() {
     if (!panel) return;
-    panel.innerHTML = `<div class="wh">🚶 การเดิน — ${path.length} ก้าว (ตามเส้นแข็งสุด ไม่ย้อน)</div>` +
+    panel.innerHTML = `<div class="wh">${host.esc(t('walk.header', { n: path.length }))}</div>` +
       path.map((p, k) => {
         const nd = G.nodes[p.i];
         return `<div class="ws" data-i="${p.i}">
-          <span class="wn">${k === 0 ? 'เริ่ม' : `ก้าว ${k}`}</span>
+          <span class="wn">${host.esc(k === 0 ? t('walk.start') : t('walk.step', { k }))}</span>
           <div class="wt">${host.esc(nd.title.slice(0, 70))}</div>
-          <div class="wm">${k > 0 ? `<b>คะแนน ${(1 - p.d).toFixed(3)}</b> · ` : ''}${host.esc(nd.session.slice(0, 20))}#${nd.line}</div>
+          <div class="wm">${k > 0 ? `<b>${host.esc(t('walk.score', { score: (1 - p.d).toFixed(3) }))}</b> · ` : ''}${host.esc(nd.session.slice(0, 20))}#${nd.line}</div>
         </div>`;
       }).join('');
     panel.querySelectorAll('.ws').forEach((el) => {
