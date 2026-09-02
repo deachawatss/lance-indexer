@@ -45,6 +45,11 @@
   #viztabs button:hover { color: var(--fg); border-color: var(--line); }
   #viztabs button[aria-pressed="true"] { background: #2a4a6b55; color: var(--acc2);
                                          border-color: #3a5a8b; }
+  #scope { background: #0f131af0; border: 1px solid var(--line); border-radius: 6px;
+           color: var(--fg); font: 12px inherit; padding: 7px 8px; cursor: pointer; width: 100%; }
+  #scope:hover { border-color: var(--acc); }
+  #scope optgroup { color: var(--dim); font-style: normal; }
+  #scope option { color: var(--fg); }
   .meta { color: var(--dim); font-size: 12px; margin-left: 6px; }
   #stage { position: fixed; inset: 0; overflow: hidden; background: #0a0c10; }
   #vizroot { position: absolute; inset: 0; }
@@ -113,6 +118,8 @@
   <button class="chip" id="mNames" aria-pressed="true">ชื่อ 20</button>
   <button class="chip" id="mSpin" title="หมุนหยุดเองเมื่อลาก — กดนี่เพื่อหมุนต่อ"
           onclick="active?.setSpin?.(true)">🔄 หมุนต่อ</button>
+  <div class="sep"></div>
+  <select id="scope" title="เลือกขอบเขตของแผนที่"><option value="">ทั้งเครื่อง</option></select>
 </div>
 <div id="detail" hidden></div>
 <div id="err" hidden></div>
@@ -158,7 +165,31 @@ const host = {
 };
 
 let active = null, namesTouched = false;
-const REPO = new URLSearchParams(location.search).get('repo') ?? '';
+const PARAMS = new URLSearchParams(location.search);
+const REPO = PARAMS.get('repo') ?? '';
+const GROUP = PARAMS.get('group') ?? '';
+const SCOPE_LABEL = REPO || GROUP || 'ทั้งเครื่อง';
+
+// dropdown ขอบเขต: repo ซ้อนใต้ group ด้วย optgroup — เลือกกลุ่มคือเลือกทุก repo ในกลุ่มนั้น
+async function buildScope() {
+  const sel = $('#scope');
+  let groups = [];
+  try { groups = (await (await fetch('/api/facets')).json()).groups ?? []; } catch {}
+  const n = (x) => x.toLocaleString();
+  const total = groups.reduce((a, g) => a + g.blocks, 0);
+  sel.innerHTML = `<option value="">ทั้งเครื่อง · ${n(total)}</option>` + groups.map((g) =>
+    `<optgroup label="${esc(g.group)}">
+       <option value="g:${esc(g.group)}">ทั้งกลุ่ม · ${n(g.blocks)}</option>
+       ${g.repos.map((r) => `<option value="r:${esc(r.repo)}">${esc(r.repo)} · ${n(r.blocks)}</option>`).join('')}
+     </optgroup>`).join('');
+  sel.value = REPO ? `r:${REPO}` : GROUP ? `g:${GROUP}` : '';
+  sel.onchange = () => {
+    const v = sel.value;
+    const q = v.startsWith('r:') ? `?repo=${encodeURIComponent(v.slice(2))}`
+            : v.startsWith('g:') ? `?group=${encodeURIComponent(v.slice(2))}` : '';
+    location.href = '/map' + q;
+  };
+}
 
 async function openDetail(nd) {
   const box = $('#detail');
@@ -253,11 +284,14 @@ async function boot() {
   tabs.querySelectorAll('button').forEach((b) => b.onclick = () => { markTabs(b.dataset.v); switchViz(b.dataset.v); });
   markTabs(want);
 
-  const res = await fetch('/api/map' + (REPO ? `?repo=${encodeURIComponent(REPO)}` : ''));
+  buildScope();
+  const q = REPO ? `?repo=${encodeURIComponent(REPO)}` : GROUP ? `?group=${encodeURIComponent(GROUP)}` : '';
+  const res = await fetch('/api/map' + q);
   const d = await res.json();
   if (d.error) { $('#err').hidden = false; $('#err').textContent = d.error; $('#stats').textContent = '—'; return; }
   host.G = d;
   if (REPO) $('#repochip').textContent = ` · 📦 ${REPO}`;
+  else if (GROUP) $('#repochip').textContent = ` · 🗂 ${GROUP}`;
   host.adj = new Map();
   for (const e of d.edges) {
     if (!host.adj.has(e.s)) host.adj.set(e.s, new Set());
@@ -267,7 +301,7 @@ async function boot() {
   const simN = d.edges.filter(e => e.kind === 'similar').length;
   const brN = d.edges.filter(e => e.kind === 'bridge').length;
   $('#stats').textContent =
-    `${d.sampled}${d.totalVectors > d.sampled ? `/${d.totalVectors}` : ''} จุด${REPO ? ` (เฉพาะ ${REPO})` : ' (ทั้งเครื่อง)'} · k=${d.k}` +
+    `${d.sampled}${d.totalVectors > d.sampled ? `/${d.totalVectors}` : ''} จุด${REPO || GROUP ? ` (เฉพาะ ${SCOPE_LABEL})` : ' (ทั้งเครื่อง)'} · k=${d.k}` +
     ` · อธิบายได้ ${Math.round(d.explained*100)}%` +
     ` · ${simN} similar + ${brN} bridge` +
     (d.unembedded > 0 ? ` · ${d.unembedded.toLocaleString()} ยังไม่มีเวกเตอร์` : '');

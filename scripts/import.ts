@@ -3,6 +3,7 @@
 // v2 default = ทั้งเครื่อง (ONLY=1 จำกัดเฉพาะ digger) · line = เลขบรรทัดจริงในไฟล์ (raw tab อ่านคืนได้)
 // รันซ้ำ = BACKFILL: (path,mtime,size) ไม่เปลี่ยน → ข้าม
 import * as lancedb from "@lancedb/lancedb";
+import { deriveOrgRepo } from "../lib/attribution";
 import { readdirSync, statSync, createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
 import { join, basename } from "node:path";
@@ -12,6 +13,8 @@ const ROOT = `${process.env.HOME}/.claude/projects`;
 const DIR = fileURLToPath(new URL("../.data/lancedb", import.meta.url));
 const ONLY = process.env.ONLY ? "-opt-Code-github-com-Soul-Brews-Studio-digger-oracle" : null;
 const CAP = 4000; // indexer ไม่ใช่ archive — raw tab ชี้กลับ (file,line) อ่านต้นฉบับเสมอ
+// FORCE=1 บังคับอ่านซ้ำทุกไฟล์ — ใช้ตอนกติกา derive เปลี่ยน เพราะ mtime/size เดิมจะทำให้ข้ามหมด
+const FORCE = !!process.env.FORCE;
 
 // ---- 1. DISCOVER: เดิน 3 ชั้น ข้าม journal.jsonl ----
 type F = { path: string; tier: string; mtime: number; size: number };
@@ -61,7 +64,7 @@ function flatten(o: any, f: F, line: number, session: string): any[] {
   const out: any[] = [];
   const base = {
     file: f.path, line, session, tier: f.tier,
-    repo: basename(str(o.cwd)) || "?",          // repo = basename(cwd) — เคล็ดจาก haos
+    ...deriveOrgRepo(str(o.cwd)),               // org/repo จาก cwd ดิบ — worktree พับเข้า repo แม่เอง
     role: type, model: str(o?.message?.model),
     ts: str(o.timestamp),
   };
@@ -89,11 +92,18 @@ function flatten(o: any, f: F, line: number, session: string): any[] {
 // ---- 3. MANIFEST diff ใน JS ----
 const db = await lancedb.connect(DIR);
 let names = await db.tableNames();
+// ตารางที่ import ไว้ก่อนมีกติกา attribution ยังไม่มีคอลัมน์ org — เติมเข้าไป ไม่ drop
+// (drop events ต้อง drop files ตาม แล้วตารางจะกลวงตลอดรอบ instance ที่เสิร์ฟอยู่จะเห็นของหาย)
+if (names.includes("events")) {
+  const t = await db.openTable("events");
+  if (!(await t.schema()).fields.some((f) => f.name === "org"))
+    await t.addColumns([{ name: "org", valueSql: "CAST(NULL AS STRING)" }]);
+}
 const known = new Map<string, { mtime: number; size: number }>();
 if (names.includes("files"))
   for (const r of await (await db.openTable("files")).query().toArray() as any[])
     known.set(r.path, { mtime: r.mtime, size: r.size });
-const changed = found.filter((f) => {
+const changed = FORCE ? found : found.filter((f) => {
   const k = known.get(f.path);
   return !(k && k.mtime === f.mtime && k.size === f.size);
 });
@@ -145,6 +155,6 @@ if (fileRows.length) {
 const total = (await db.tableNames()).includes("events")
   ? await (await db.openTable("events")).countRows() : 0;
 console.log(`discover: ${found.length} files (ข้าม journal.jsonl)${ONLY ? " [ONLY digger]" : " [ทั้งเครื่อง]"}`);
-console.log(`import:   new/changed=${changed.length}  unchanged-skipped=${found.length - changed.length}  (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
+console.log(`import:   new/changed=${changed.length}  unchanged-skipped=${found.length - changed.length}${FORCE ? "  [FORCE — อ่านซ้ำทุกไฟล์]" : ""}  (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
 console.log(`blocks:   +${blocks} upserted this run, ${total} in table, corrupt=${corrupt}`);
 console.log(`db:       ${DIR}`);

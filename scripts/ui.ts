@@ -1,6 +1,7 @@
 // lance-indexer: UI server v2 — block granularity + facets ครบ (kind/role/tier/repo/tool/model)
 // localhost เท่านั้น ไม่ publish · lexical = LIKE scan · vector/hybrid เปิดเมื่อ vectors table โผล่
 import * as lancedb from "@lancedb/lancedb";
+import { UNGROUPED, groupOf, resolveGroups, type Sighting } from "../lib/attribution";
 import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
@@ -20,20 +21,34 @@ const count = (m: Record<string, number>, k: string) => { if (k) m[k] = (m[k] ??
 type Agg = {
   stats: any; kinds: any; roles: any; tiers: any; repos: any; tools: any; models: any;
   byId: Map<string, any>; recent: any[]; sessions: number;
+  groups: Map<string, string>; ungrouped: number;
 };
 async function aggregate(): Promise<Agg> {
   const rows = await events.query()
-    .select(["id", "file", "session", "tier", "role", "kind", "repo", "tool", "model", "ts", "line", "idx"])
+    .select(["id", "file", "session", "tier", "role", "kind", "org", "repo", "tool", "model", "ts", "line", "idx"])
     .toArray() as any[];
   const kinds = {}, roles = {}, tiers = {}, repos = {}, tools = {}, models = {};
   const byId = new Map<string, any>();
   const sess = new Set<string>();
+  // group ต้องรู้ว่า repo ชื่อนี้เคยอยู่ใต้ org ไหนบ้าง — เก็บ ts ล่าสุดต่อคู่ (org,repo) ในรอบ scan เดิม
+  const seen = new Map<string, string>();
+  let ungrouped = 0;
   for (const r of rows) {
     count(kinds, r.kind); count(roles, r.role); count(tiers, r.tier);
     count(repos, r.repo); count(tools, r.tool); count(models, r.model);
     sess.add(r.file);
+    const org = r.org ?? "", repo = r.repo ?? "";
+    if (org && repo) {
+      const k = `${org}\n${repo}`, ts = r.ts ?? "";
+      if (ts > (seen.get(k) ?? "")) seen.set(k, ts);
+    } else ungrouped++;
     byId.set(r.id, { kind: r.kind, role: r.role, tier: r.tier, repo: r.repo, tool: r.tool, model: r.model, ts: r.ts });
   }
+  const sightings: Sighting[] = [...seen].map(([k, lastSeen]) => {
+    const [org, repo] = k.split("\n");
+    return { org: org!, repo: repo!, lastSeen };
+  });
+  const groups = resolveGroups(sightings);
   rows.sort((a, b) => (b.ts ?? "").localeCompare(a.ts ?? ""));
   const top = rows.slice(0, 2000);
   const cutoff = top[top.length - 1]?.ts ?? "";
@@ -47,11 +62,37 @@ async function aggregate(): Promise<Agg> {
   return {
     stats: { rows: rows.length, sessions: sess.size, span_days: span },
     kinds, roles, tiers, repos, tools, models, byId, recent, sessions: sess.size,
+    groups, ungrouped,
   };
 }
 console.log("aggregating…");
 let agg = await aggregate();
-console.log(`aggregate: ${agg.stats.rows} blocks, ${agg.stats.sessions} files`);
+console.log(`aggregate: ${agg.stats.rows} blocks, ${agg.stats.sessions} files, ${new Set(agg.groups.values()).size} groups`);
+
+// group → รายชื่อ repo ในกลุ่ม — ขยายในหน่วยความจำล้วน ไม่เคยกลายเป็น query clause
+// (ชื่อ group มาจาก request parameter ที่ผู้ใช้คุมได้ ส่วน where ที่นี่ต่อสตริงเอา)
+function reposInGroup(group: string): Set<string> {
+  if (group === UNGROUPED) return new Set([""]);
+  return new Set([...agg.groups].filter(([, g]) => g === group).map(([repo]) => repo));
+}
+// รายการสำหรับ dropdown ของแผนที่: repo ซ้อนใต้ group พร้อมจำนวน block ต่อรายการ
+function groupList() {
+  const byGroup = new Map<string, { group: string; blocks: number; repos: { repo: string; blocks: number }[] }>();
+  for (const [repo, blocks] of Object.entries(agg.repos as Record<string, number>)) {
+    const g = groupOf(repo, agg.groups);
+    let e = byGroup.get(g);
+    if (!e) byGroup.set(g, e = { group: g, blocks: 0, repos: [] });
+    e.blocks += blocks;
+    e.repos.push({ repo, blocks });
+  }
+  if (agg.ungrouped) {
+    const e = byGroup.get(UNGROUPED) ?? { group: UNGROUPED, blocks: 0, repos: [] };
+    e.blocks += agg.ungrouped;
+    byGroup.set(UNGROUPED, e);
+  }
+  for (const e of byGroup.values()) e.repos.sort((a, b) => b.blocks - a.blocks);
+  return [...byGroup.values()].sort((a, b) => b.blocks - a.blocks);
+}
 
 async function vectorsTable() {
   return (await db.tableNames()).includes("vectors") ? db.openTable("vectors") : null;
@@ -185,7 +226,9 @@ function mapEdges(sim: number[][], k: number) {
   }
   return edges;
 }
-let mapCache: { key: string; body: string } | null = null;
+// เก็บหลาย scope ไม่ใช่ตัวเดียว — dropdown ชวนสลับไปกลับ ส่วน miss หนึ่งครั้งคือ PCA + kNN ใหม่ทั้งก้อน
+const MAP_CACHE_MAX = 5;
+const mapCache = new Map<string, string>();
 
 // memory distance ระหว่าง repo: centroid ของ vectors ต่อ repo → cosine ต่อกัน (cache ตาม count)
 let nbCache: { n: number; data: Record<string, { repo: string; d: number; n: number }[]> } | null = null;
@@ -222,7 +265,7 @@ async function repoNeighbors() {
   nbCache = { n: nVec, data };
   return data;
 }
-async function buildMap(limit: number, repo = "") {
+async function buildMap(limit: number, scope: Set<string> | null) {
   const vt = await vectorsTable();
   if (!vt) return null;
   const tbl = await vt;
@@ -231,7 +274,8 @@ async function buildMap(limit: number, repo = "") {
   // และยึด label แผนที่ — ตัดออกจากภาพ (ยังค้นเจอปกติในหน้าค้น)
   const JUNK = ["<system-reminder>", "[Image: source:"];
   all = all.filter((r) => { const t = String(r.text).trimStart(); return !JUNK.some((j) => t.startsWith(j)); });
-  if (repo) all = all.filter((r) => agg.byId.get(r.id)?.repo === repo);  // แผนที่เฉพาะ repo
+  // scope = ชุดชื่อ repo ที่ขยายไว้แล้วในหน่วยความจำ (repo เดี่ยว หรือทุก repo ในกลุ่ม)
+  if (scope) all = all.filter((r) => scope.has(agg.byId.get(r.id)?.repo ?? ""));
   const totalVec = all.length;
   if (totalVec < 2) return null;
   const step = Math.max(1, Math.ceil(all.length / limit));
@@ -360,16 +404,24 @@ Bun.serve({
       if (u.pathname === "/api/map") {
         const limit = Math.max(10, Math.min(1200, Number(u.searchParams.get("limit") ?? 600)));
         const repo = u.searchParams.get("repo") ?? "";
+        const group = u.searchParams.get("group") ?? "";
+        // ว่างทั้งคู่ = ทั้งเครื่อง (กติกาเดิม) · repo ชนะ group ถ้าส่งมาทั้งคู่
+        const scope = repo ? new Set([repo]) : group ? reposInGroup(group) : null;
         const vt = await vectorsTable();
         const nVec = vt ? await (await vt).countRows() : 0;
         if (!nVec) return json({ error: "no vectors yet — run: just embed" }, 409);
-        const key = `${nVec}:${repo}:${limit}`;
-        if (!mapCache || mapCache.key !== key) {
-          const g = await buildMap(limit, repo);
-          if (!g) return json({ error: "not enough vectors" + (repo ? ` ใน repo ${repo}` : "") }, 409);
-          mapCache = { key, body: JSON.stringify({ ...g, repo }) };
+        const key = `${nVec}:${repo}:${group}:${limit}`;
+        let body = mapCache.get(key);
+        if (body === undefined) {
+          const g = await buildMap(limit, scope);
+          if (!g) return json({ error: "not enough vectors" + (repo ? ` ใน repo ${repo}` : group ? ` ใน group ${group}` : "") }, 409);
+          body = JSON.stringify({ ...g, repo, group });
+          if (mapCache.size >= MAP_CACHE_MAX) mapCache.delete(mapCache.keys().next().value!);
+          mapCache.set(key, body);
+        } else {
+          mapCache.delete(key); mapCache.set(key, body);   // แตะแล้วเลื่อนไปท้ายคิว — ตัวเก่าสุดโดนทิ้งก่อน
         }
-        return new Response(mapCache.body, { headers: { "content-type": "application/json" } });
+        return new Response(body, { headers: { "content-type": "application/json" } });
       }
       // repo context: สถิติ / topics (summaries+tools) / memory distance (centroid ต่อ repo)
       if (u.pathname === "/api/repo") {
@@ -399,7 +451,7 @@ Bun.serve({
           summaries, neighbors: nb?.[name] ?? null,
         });
       }
-      if (u.pathname === "/api/refresh") { agg = await aggregate(); return json({ ok: true, rows: agg.stats.rows }); }
+      if (u.pathname === "/api/refresh") { agg = await aggregate(); mapCache.clear(); return json({ ok: true, rows: agg.stats.rows }); }
       // preflight: เช็คก่อนเริ่ม — อะไรทำแล้ว / อะไรใหม่ (ไม่เขียนอะไรทั้งนั้น)
       if (u.pathname === "/api/preflight") {
         const name = u.searchParams.get("name") ?? "";
@@ -456,7 +508,7 @@ Bun.serve({
         return json({ error: "unknown preflight" }, 400);
       }
       if (u.pathname === "/api/import" && req.method === "POST") {
-        const j = runJob("import", ["import.ts"], async () => { agg = await aggregate(); mapCache = null; });
+        const j = runJob("import", ["import.ts"], async () => { agg = await aggregate(); mapCache.clear(); });
         return json({ started: !!j, id: j?.id, note: j ? "import วิ่งแล้ว" : "import กำลังวิ่งอยู่แล้ว" }, j ? 200 : 409);
       }
       if (u.pathname === "/api/embed" && req.method === "POST") {
@@ -464,7 +516,7 @@ Bun.serve({
         // gpus=1 → กระจาย m5 + gpu1/gpu2 ผ่าน ssh tunnel (18434/18435) แบบ work-stealing
         const GPU_URLS = "http://localhost:11434,http://localhost:18434,http://localhost:18435";
         const env = u.searchParams.get("gpus") ? { OLLAMA_URLS: GPU_URLS } : undefined;
-        const j = runJob("embed", ["embed.ts", String(n)], async () => { mapCache = null; }, env);
+        const j = runJob("embed", ["embed.ts", String(n)], async () => { mapCache.clear(); }, env);
         return json({ started: !!j, id: j?.id, n, gpus: !!env, note: j ? "embed วิ่งแล้ว" : "embed กำลังวิ่งอยู่แล้ว" }, j ? 200 : 409);
       }
       // kill: หยุดงานที่วิ่งอยู่ — ปลอดภัยเพราะ import idempotent / embed incremental (รันใหม่ต่อจากเดิม)
@@ -509,6 +561,7 @@ Bun.serve({
           kinds: topEntries(agg.kinds, 8), roles: topEntries(agg.roles, 5),
           tiers: topEntries(agg.tiers, 5), repos: topEntries(agg.repos, 14),
           tools: topEntries(agg.tools, 18), models: topEntries(agg.models, 8),
+          groups: groupList(),
         });
       }
       // timeline: block รอบๆ บรรทัดที่เลือก เรียงตาม (line, idx)
