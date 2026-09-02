@@ -132,7 +132,7 @@ export const demoWorker = {
     }
     if (path === "/api/event") {
       const row = events.find((event) => event.id === url.searchParams.get("id"));
-      return row ? json(row) : json({ error: "not found" }, 404);
+      return row ? json(row) : json({ error: "NOT_FOUND" }, 404);
     }
     if (path === "/api/session") {
       const rows = events.filter((event) => event.file === (url.searchParams.get("file") ?? "")).sort((a, b) => a.line - b.line || a.idx - b.idx);
@@ -140,8 +140,9 @@ export const demoWorker = {
     }
     if (path === "/api/raw") return json({ type: "fixture", note: "Synthetic public fixture. No local JSONL is readable in this deployment." });
     if (path === "/api/repo") {
-      const body = repoContext(url.searchParams.get("name") ?? "");
-      return body ? json(body) : json({ error: "ไม่พบ repo นี้" }, 404);
+      const name = url.searchParams.get("name") ?? "";
+      const body = repoContext(name);
+      return body ? json(body) : json({ error: "REPO_NOT_FOUND", name }, 404);
     }
     if (path === "/api/map") return json(map(url));
     if (path === "/api/preflight") {
@@ -155,14 +156,14 @@ export const demoWorker = {
       const from = Math.max(0, Number(url.searchParams.get("from") ?? 0));
       return json({ id: 1, name: "import", running: false, code: 0, next: logs.length, lines: logs.slice(from) });
     }
-    if (path === "/api/import" && request.method === "POST") return json({ started: true, id: 1, demo: true, note: "Fixture simulation only; no state is written." });
-    if (path === "/api/embed" && request.method === "POST") return json({ started: true, id: 1, demo: true, note: "Fixture simulation only; vectors are bundled." });
-    if (path === "/api/job-kill" && request.method === "POST") return json({ error: "Static demo jobs are immutable." }, 409);
+    if (path === "/api/import" && request.method === "POST") return json({ started: true, id: 1, demo: true, note: "JOB_STARTED", name: "import" });
+    if (path === "/api/embed" && request.method === "POST") return json({ started: true, id: 1, demo: true, note: "JOB_STARTED", name: "embed" });
+    if (path === "/api/job-kill" && request.method === "POST") return json({ error: "DEMO_JOBS_IMMUTABLE" }, 409);
     if (path === "/api/refresh") return json({ ok: true, rows: events.length, demo: true });
     if (path === "/api/insight" && request.method === "POST") {
       const body = await request.json().catch(() => ({})) as { q?: unknown; repo?: unknown; model?: unknown };
       const q = String(body.q ?? "").trim();
-      if (!q) return json({ error: "ถามอะไรดี?" }, 400);
+      if (!q) return json({ error: "ASK_SOMETHING" }, 400);
       const evidence = filter(new URL(`${url.origin}/api/search?q=${encodeURIComponent(q)}`)).slice(0, 4);
       return json({
         answer: "เดโมสาธารณะนี้ใช้ fixture เท่านั้น: Lance Indexer แยก import, manifest และ vector table เพื่อให้ ingestion ไม่ต้องรอ embedding [1]. การค้นหาและแผนที่จึงอธิบาย provenance ได้โดยไม่แตะ session จริง [2].",
@@ -170,7 +171,7 @@ export const demoWorker = {
         took: { embed: 0, search: 1, llm: 0, total: 1 }, demo: true,
       });
     }
-    if (path.startsWith("/api/")) return json({ error: "not found" }, 404);
+    if (path.startsWith("/api/")) return json({ error: "NOT_FOUND" }, 404);
     return demoAsset(request, env, path);
   },
 };

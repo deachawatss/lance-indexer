@@ -1,8 +1,9 @@
 <!doctype html>
-<html lang="th">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="/i18n.js"></script>
 <title>Jobs · Lance Indexer</title>
 <style>
   :root {
@@ -71,16 +72,17 @@
 <header>
   <span class="brand">⛏ lance<span>·indexer</span></span>
   <nav class="pages">
-    <a href="/">🔍 ค้นหา</a>
-    <a href="/map">🗺 แผนที่</a>
-    <a href="/insight">💡 insight</a>
-    <a href="/live">📡 live</a>
-    <a href="/admin" aria-current="page">⚙ jobs</a>
+    <a href="/" data-i18n="nav.search"></a>
+    <a href="/map" data-i18n="nav.map"></a>
+    <a href="/insight" data-i18n="nav.insight"></a>
+    <a href="/live" data-i18n="nav.live"></a>
+    <a href="/admin" aria-current="page" data-i18n="nav.jobs"></a>
   </nav>
   <div class="stats">
     <span>rows <b id="sRows">—</b></span>
     <span>files <b id="sFiles">—</b></span>
     <span>vectors <b id="sVec">—</b> / <b id="sCand">—</b> text</span>
+    <button class="ghost" data-lang-switch style="background:transparent;border:1px solid var(--line2);border-radius:6px;color:var(--dim);font:11px var(--mono);padding:6px 12px;cursor:pointer"></button>
   </div>
 </header>
 <div class="launch">
@@ -90,14 +92,14 @@
   <label style="color:var(--dim);font-size:12px;display:flex;align-items:center;gap:5px">
     <input id="embedGpus" type="checkbox" checked> +gpu1/gpu2 (ssh tunnel)
   </label>
-  <span class="hint">ก้อน/รอบ (incremental — ข้ามที่ทำแล้ว)</span>
+  <span class="hint" data-i18n="admin.perRound"></span>
 </div>
 <div class="body">
-  <div id="joblist"><div id="nojobs">ยังไม่มีงานในรอบนี้ — กด import หรือ embed ด้านบน</div></div>
+  <div id="joblist"><div id="nojobs" data-i18n="admin.noJobs"></div></div>
   <div id="term">
-    <div class="thead"><span class="dot" id="tdot"></span><span id="ttitle">เลือกงานจากซ้ายเพื่อดู log</span>
+    <div class="thead"><span class="dot" id="tdot"></span><span id="ttitle" data-i18n="admin.pickJob"></span>
       <button id="tkill" hidden onclick="killSelected()"
-        style="margin-left:auto;background:#3a1f1f;border:1px solid #f0928f;border-radius:6px;color:#f0c0be;font:12px var(--mono);padding:6px 14px;cursor:pointer">■ หยุด</button>
+        style="margin-left:auto;background:#3a1f1f;border:1px solid #f0928f;border-radius:6px;color:#f0c0be;font:12px var(--mono);padding:6px 14px;cursor:pointer" data-i18n="job.stop"></button>
     </div>
     <pre id="termout"></pre>
   </div>
@@ -125,7 +127,7 @@ async function refreshJobs() {
         <div class="nm">#${j.id} ${j.name}<small>${j.args ?? ''}</small></div>
         <div class="sub">${j.last.replace(/</g, '&lt;')}</div>
       </div>
-      <div class="tm">${fmtT(j.started)}<br>${j.running ? 'กำลังวิ่ง' : `exit ${j.code}`} · ${fmtEl(j.elapsed_s)}</div>
+      <div class="tm">${fmtT(j.started)}<br>${j.running ? t('job.running').replace('· ', '') : `exit ${j.code}`} · ${fmtEl(j.elapsed_s)}</div>
     </div>`).join('');
   list.querySelectorAll('.job').forEach((el) => el.onclick = () => select(Number(el.dataset.id)));
   // งานที่กำลังวิ่ง ถ้ายังไม่ได้เลือกอะไร → เกาะดูอัตโนมัติ
@@ -146,14 +148,14 @@ async function poll() {
   if (selected === null) return;
   try {
     const d = await (await fetch(`/api/job-log?id=${selected}&from=${from}`)).json();
-    if (d.error) { $('#ttitle').textContent = d.error; return; }
-    $('#ttitle').textContent = `#${d.id} ${d.name} ${d.running ? '· กำลังวิ่ง' : `· exit ${d.code}`}`;
+    if (d.error) { $('#ttitle').textContent = tsrv(d); return; }
+    $('#ttitle').textContent = `#${d.id} ${d.name} ${d.running ? t('job.running') : `· exit ${d.code}`}`;
     $('#tdot').className = `dot ${d.running ? 'live' : d.code === 0 ? 'ok' : 'bad'}`;
     $('#tkill').hidden = !d.running;
     if (d.lines.length) {
       const out = $('#termout');
       const follow = out.scrollTop + out.clientHeight >= out.scrollHeight - 30;
-      out.textContent += (out.textContent ? '\n' : '') + d.lines.join('\n');
+      out.textContent += (out.textContent ? '\n' : '') + d.lines.map(srvLine).join('\n');
       from = d.next;
       if (follow) out.scrollTop = out.scrollHeight;
     }
@@ -179,6 +181,7 @@ async function start(name) {
   }
 }
 
+i18n.apply();
 refreshJobs();
 setInterval(refreshJobs, 2500);
 </script>

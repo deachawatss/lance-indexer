@@ -1,6 +1,7 @@
 // lance-indexer: UI server v2 — block granularity + facets ครบ (kind/role/tier/repo/tool/model)
 // localhost เท่านั้น ไม่ publish · lexical = LIKE scan · vector/hybrid เปิดเมื่อ vectors table โผล่
 import * as lancedb from "@lancedb/lancedb";
+import { UNGROUPED, groupOf, resolveGroups, type Sighting } from "../lib/attribution";
 import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
@@ -13,6 +14,8 @@ const PORT = Number(process.env.PORT ?? 4131);
 const db = await lancedb.connect(DIR);
 const events = await db.openTable("events");
 const esc = (s: string) => s.replace(/'/g, "''");
+// log ของ job คือ stdout ดิบของสคริปต์ลูก — บรรทัดที่ server เขียนเองติดป้ายนี้ไว้ให้เบราว์เซอร์แปล
+const SRV_LINE = "@@srv ";
 const count = (m: Record<string, number>, k: string) => { if (k) m[k] = (m[k] ?? 0) + 1; };
 
 // ── aggregate ครั้งเดียวตอน start: counts ทุก facet + browse window ──
@@ -20,20 +23,35 @@ const count = (m: Record<string, number>, k: string) => { if (k) m[k] = (m[k] ??
 type Agg = {
   stats: any; kinds: any; roles: any; tiers: any; repos: any; tools: any; models: any;
   byId: Map<string, any>; recent: any[]; sessions: number;
+  groups: Map<string, string>; ungrouped: number;
 };
 async function aggregate(): Promise<Agg> {
   const rows = await events.query()
-    .select(["id", "file", "session", "tier", "role", "kind", "repo", "tool", "model", "ts", "line", "idx"])
+    .select(["id", "file", "session", "tier", "role", "kind", "org", "repo", "tool", "model", "ts", "line", "idx"])
     .toArray() as any[];
   const kinds = {}, roles = {}, tiers = {}, repos = {}, tools = {}, models = {};
   const byId = new Map<string, any>();
   const sess = new Set<string>();
+  // group ต้องรู้ว่า repo ชื่อนี้เคยอยู่ใต้ org ไหนบ้าง — เก็บ ts ล่าสุดต่อคู่ (org,repo) ในรอบ scan เดิม
+  const seen = new Map<string, string>();
+  let ungrouped = 0;
   for (const r of rows) {
     count(kinds, r.kind); count(roles, r.role); count(tiers, r.tier);
     count(repos, r.repo); count(tools, r.tool); count(models, r.model);
     sess.add(r.file);
+    const org = r.org ?? "", repo = r.repo ?? "";
+    if (org && repo) {
+      const k = `${org}\n${repo}`, ts = r.ts ?? "";
+      if (ts > (seen.get(k) ?? "")) seen.set(k, ts);
+    }
+    if (!repo) ungrouped++;
     byId.set(r.id, { kind: r.kind, role: r.role, tier: r.tier, repo: r.repo, tool: r.tool, model: r.model, ts: r.ts });
   }
+  const sightings: Sighting[] = [...seen].map(([k, lastSeen]) => {
+    const [org, repo] = k.split("\n");
+    return { org: org!, repo: repo!, lastSeen };
+  });
+  const groups = resolveGroups(sightings);
   rows.sort((a, b) => (b.ts ?? "").localeCompare(a.ts ?? ""));
   const top = rows.slice(0, 2000);
   const cutoff = top[top.length - 1]?.ts ?? "";
@@ -47,11 +65,39 @@ async function aggregate(): Promise<Agg> {
   return {
     stats: { rows: rows.length, sessions: sess.size, span_days: span },
     kinds, roles, tiers, repos, tools, models, byId, recent, sessions: sess.size,
+    groups, ungrouped,
   };
 }
 console.log("aggregating…");
 let agg = await aggregate();
-console.log(`aggregate: ${agg.stats.rows} blocks, ${agg.stats.sessions} files`);
+console.log(`aggregate: ${agg.stats.rows} blocks, ${agg.stats.sessions} files, ${new Set(agg.groups.values()).size} groups`);
+
+// group → รายชื่อ repo ในกลุ่ม — ขยายในหน่วยความจำล้วน ไม่เคยกลายเป็น query clause
+// (ชื่อ group มาจาก request parameter ที่ผู้ใช้คุมได้ ส่วน where ที่นี่ต่อสตริงเอา)
+function reposInGroup(group: string): Set<string> {
+  const named = new Set(
+    Object.keys(agg.repos as Record<string, number>).filter((repo) => groupOf(repo, agg.groups) === group));
+  if (group === UNGROUPED) named.add("");   // แถวที่ derive ชื่อ repo ไม่ได้เลย
+  return named;
+}
+// รายการสำหรับ dropdown ของแผนที่: repo ซ้อนใต้ group พร้อมจำนวน block ต่อรายการ
+function groupList() {
+  const byGroup = new Map<string, { group: string; blocks: number; repos: { repo: string; blocks: number }[] }>();
+  for (const [repo, blocks] of Object.entries(agg.repos as Record<string, number>)) {
+    const g = groupOf(repo, agg.groups);
+    let e = byGroup.get(g);
+    if (!e) byGroup.set(g, e = { group: g, blocks: 0, repos: [] });
+    e.blocks += blocks;
+    e.repos.push({ repo, blocks });
+  }
+  if (agg.ungrouped) {
+    const e = byGroup.get(UNGROUPED) ?? { group: UNGROUPED, blocks: 0, repos: [] };
+    e.blocks += agg.ungrouped;
+    byGroup.set(UNGROUPED, e);
+  }
+  for (const e of byGroup.values()) e.repos.sort((a, b) => b.blocks - a.blocks);
+  return [...byGroup.values()].sort((a, b) => b.blocks - a.blocks);
+}
 
 async function vectorsTable() {
   return (await db.tableNames()).includes("vectors") ? db.openTable("vectors") : null;
@@ -185,7 +231,9 @@ function mapEdges(sim: number[][], k: number) {
   }
   return edges;
 }
-let mapCache: { key: string; body: string } | null = null;
+// เก็บหลาย scope ไม่ใช่ตัวเดียว — dropdown ชวนสลับไปกลับ ส่วน miss หนึ่งครั้งคือ PCA + kNN ใหม่ทั้งก้อน
+const MAP_CACHE_MAX = 5;
+const mapCache = new Map<string, string>();
 
 // memory distance ระหว่าง repo: centroid ของ vectors ต่อ repo → cosine ต่อกัน (cache ตาม count)
 let nbCache: { n: number; data: Record<string, { repo: string; d: number; n: number }[]> } | null = null;
@@ -222,7 +270,7 @@ async function repoNeighbors() {
   nbCache = { n: nVec, data };
   return data;
 }
-async function buildMap(limit: number, repo = "") {
+async function buildMap(limit: number, scope: Set<string> | null) {
   const vt = await vectorsTable();
   if (!vt) return null;
   const tbl = await vt;
@@ -231,7 +279,8 @@ async function buildMap(limit: number, repo = "") {
   // และยึด label แผนที่ — ตัดออกจากภาพ (ยังค้นเจอปกติในหน้าค้น)
   const JUNK = ["<system-reminder>", "[Image: source:"];
   all = all.filter((r) => { const t = String(r.text).trimStart(); return !JUNK.some((j) => t.startsWith(j)); });
-  if (repo) all = all.filter((r) => agg.byId.get(r.id)?.repo === repo);  // แผนที่เฉพาะ repo
+  // scope = ชุดชื่อ repo ที่ขยายไว้แล้วในหน่วยความจำ (repo เดี่ยว หรือทุก repo ในกลุ่ม)
+  if (scope) all = all.filter((r) => scope.has(agg.byId.get(r.id)?.repo ?? ""));
   const totalVec = all.length;
   if (totalVec < 2) return null;
   const step = Math.max(1, Math.ceil(all.length / limit));
@@ -295,18 +344,18 @@ Bun.serve({
       if (u.pathname === "/api/insight" && req.method === "POST") {
         const body = await req.json().catch(() => ({}));
         const q = String(body.q ?? "").trim();
-        if (!q) return json({ error: "ถามอะไรดี?" }, 400);
+        if (!q) return json({ error: "ASK_SOMETHING" }, 400);
         const k = Math.max(4, Math.min(24, Number(body.k ?? 12)));
         const repo = String(body.repo ?? "").trim();
         const model = String(body.model ?? process.env.INSIGHT_MODEL ?? "qwen2.5:7b");
         const llmUrl = process.env.INSIGHT_URL ?? "http://localhost:18434"; // gpu1 ผ่าน ssh tunnel
         const vt = await vectorsTable();
-        if (!vt) return json({ error: "ยังไม่มี vectors — embed ก่อน" }, 409);
+        if (!vt) return json({ error: "NO_VECTORS" }, 409);
         const t0 = Date.now();
         const er = await fetch(`${OLLAMA}/api/embed`, {
           method: "POST", body: JSON.stringify({ model: "bge-m3", input: [q] }),
         });
-        if (!er.ok) return json({ error: `embed: ollama ${er.status}` }, 502);
+        if (!er.ok) return json({ error: "EMBED_FAILED", status: er.status }, 502);
         const qv = ((await er.json()) as any).embeddings[0] as number[];
         const tE = Date.now();
         let hits = await (await vt).vectorSearch(qv).limit(repo ? k * 4 : k).toArray() as any[];
@@ -333,7 +382,7 @@ Bun.serve({
             ],
           }),
         });
-        if (!lr.ok) return json({ error: `llm: ${lr.status} ${await lr.text()}` }, 502);
+        if (!lr.ok) return json({ error: "LLM_FAILED", status: lr.status, detail: await lr.text() }, 502);
         const lj = (await lr.json()) as any;
         let answer = String(lj.message?.content ?? "");
         answer = answer.replace(/<think>[\s\S]*?<\/think>/g, "").trim(); // qwen3 คิดในใจ — ตัดทิ้ง
@@ -346,6 +395,9 @@ Bun.serve({
           took: { embed: tE - t0, search: tS - tE, llm: Date.now() - tS, total: Date.now() - t0 },
         });
       }
+      // สคริปต์ร่วมของทุกหน้า — ตารางคำสองภาษา ต้องเสิร์ฟจริง ไม่งั้นหน้าเว็บโหลดไม่เจอ
+      if (u.pathname === "/i18n.js")
+        return new Response(Bun.file(fileURLToPath(new URL("../ui/i18n.js", import.meta.url))));
       // viz plugins: ไฟล์ js ใน ui/viz — เพิ่ม plugin = วางไฟล์ ไม่ต้องแตะ server
       if (u.pathname.startsWith("/viz/")) {
         const base = fileURLToPath(new URL("../ui/viz/", import.meta.url));
@@ -360,24 +412,33 @@ Bun.serve({
       if (u.pathname === "/api/map") {
         const limit = Math.max(10, Math.min(1200, Number(u.searchParams.get("limit") ?? 600)));
         const repo = u.searchParams.get("repo") ?? "";
+        const group = u.searchParams.get("group") ?? "";
+        // ว่างทั้งคู่ = ทั้งเครื่อง (กติกาเดิม) · repo ชนะ group ถ้าส่งมาทั้งคู่
+        const scope = repo ? new Set([repo]) : group ? reposInGroup(group) : null;
         const vt = await vectorsTable();
         const nVec = vt ? await (await vt).countRows() : 0;
-        if (!nVec) return json({ error: "no vectors yet — run: just embed" }, 409);
-        const key = `${nVec}:${repo}:${limit}`;
-        if (!mapCache || mapCache.key !== key) {
-          const g = await buildMap(limit, repo);
-          if (!g) return json({ error: "not enough vectors" + (repo ? ` ใน repo ${repo}` : "") }, 409);
-          mapCache = { key, body: JSON.stringify({ ...g, repo }) };
+        if (!nVec) return json({ error: "NO_VECTORS" }, 409);
+        const key = `${nVec}:${repo}:${group}:${limit}`;
+        let body = mapCache.get(key);
+        if (body === undefined) {
+          const g = await buildMap(limit, scope);
+          // เดิมข้อความนี้ประกอบครึ่งอังกฤษครึ่งไทยคร่อม client/server — ตอนนี้เป็นโค้ดเดียว scope เป็นพารามิเตอร์
+          if (!g) return json({ error: "NOT_ENOUGH_VECTORS", scope: repo || group || "" }, 409);
+          body = JSON.stringify({ ...g, repo, group });
+          if (mapCache.size >= MAP_CACHE_MAX) mapCache.delete(mapCache.keys().next().value!);
+          mapCache.set(key, body);
+        } else {
+          mapCache.delete(key); mapCache.set(key, body);   // แตะแล้วเลื่อนไปท้ายคิว — ตัวเก่าสุดโดนทิ้งก่อน
         }
-        return new Response(mapCache.body, { headers: { "content-type": "application/json" } });
+        return new Response(body, { headers: { "content-type": "application/json" } });
       }
       // repo context: สถิติ / topics (summaries+tools) / memory distance (centroid ต่อ repo)
       if (u.pathname === "/api/repo") {
         const name = u.searchParams.get("name") ?? "";
-        if (!name) return json({ error: "name?" }, 400);
+        if (!name) return json({ error: "NAME_REQUIRED" }, 400);
         const rows = await events.query().where(`repo = '${esc(name)}'`)
           .select(["session", "file", "kind", "role", "tier", "tool", "ts", "text", "n_chars"]).toArray() as any[];
-        if (!rows.length) return json({ error: "ไม่พบ repo นี้" }, 404);
+        if (!rows.length) return json({ error: "REPO_NOT_FOUND", name }, 404);
         const kinds: any = {}, tools: any = {}, days: any = {};
         const sess = new Set<string>();
         let first = "", last = "";
@@ -399,7 +460,7 @@ Bun.serve({
           summaries, neighbors: nb?.[name] ?? null,
         });
       }
-      if (u.pathname === "/api/refresh") { agg = await aggregate(); return json({ ok: true, rows: agg.stats.rows }); }
+      if (u.pathname === "/api/refresh") { agg = await aggregate(); mapCache.clear(); return json({ ok: true, rows: agg.stats.rows }); }
       // preflight: เช็คก่อนเริ่ม — อะไรทำแล้ว / อะไรใหม่ (ไม่เขียนอะไรทั้งนั้น)
       if (u.pathname === "/api/preflight") {
         const name = u.searchParams.get("name") ?? "";
@@ -453,27 +514,27 @@ Bun.serve({
           const done = vt ? await (await vt).countRows() : 0;
           return json({ name, candidates, embedded: done, remaining: Math.max(0, candidates - done) });
         }
-        return json({ error: "unknown preflight" }, 400);
+        return json({ error: "UNKNOWN_PREFLIGHT", name }, 400);
       }
       if (u.pathname === "/api/import" && req.method === "POST") {
-        const j = runJob("import", ["import.ts"], async () => { agg = await aggregate(); mapCache = null; });
-        return json({ started: !!j, id: j?.id, note: j ? "import วิ่งแล้ว" : "import กำลังวิ่งอยู่แล้ว" }, j ? 200 : 409);
+        const j = runJob("import", ["import.ts"], async () => { agg = await aggregate(); mapCache.clear(); });
+        return json({ started: !!j, id: j?.id, note: j ? "JOB_STARTED" : "JOB_ALREADY_RUNNING", name: "import" }, j ? 200 : 409);
       }
       if (u.pathname === "/api/embed" && req.method === "POST") {
         const n = Math.max(1, Math.min(100000, Number(u.searchParams.get("n") ?? 2000)));
         // gpus=1 → กระจาย m5 + gpu1/gpu2 ผ่าน ssh tunnel (18434/18435) แบบ work-stealing
         const GPU_URLS = "http://localhost:11434,http://localhost:18434,http://localhost:18435";
         const env = u.searchParams.get("gpus") ? { OLLAMA_URLS: GPU_URLS } : undefined;
-        const j = runJob("embed", ["embed.ts", String(n)], async () => { mapCache = null; }, env);
-        return json({ started: !!j, id: j?.id, n, gpus: !!env, note: j ? "embed วิ่งแล้ว" : "embed กำลังวิ่งอยู่แล้ว" }, j ? 200 : 409);
+        const j = runJob("embed", ["embed.ts", String(n)], async () => { mapCache.clear(); }, env);
+        return json({ started: !!j, id: j?.id, n, gpus: !!env, note: j ? "JOB_STARTED" : "JOB_ALREADY_RUNNING", name: "embed" }, j ? 200 : 409);
       }
       // kill: หยุดงานที่วิ่งอยู่ — ปลอดภัยเพราะ import idempotent / embed incremental (รันใหม่ต่อจากเดิม)
       if (u.pathname === "/api/job-kill" && req.method === "POST") {
         const id = Number(u.searchParams.get("id") ?? 0);
         const j = id ? jobList.find((x) => x.id === id) : activeByName(u.searchParams.get("name") ?? "");
-        if (!j) return json({ error: "no such job" }, 404);
-        if (!j.running) return json({ error: "ไม่ได้วิ่งอยู่" }, 409);
-        j.lines.push("■ ถูกสั่งหยุด (SIGTERM) — งานนี้รันใหม่ต่อจากเดิมได้");
+        if (!j) return json({ error: "JOB_NOT_FOUND" }, 404);
+        if (!j.running) return json({ error: "JOB_NOT_RUNNING" }, 409);
+        j.lines.push(`${SRV_LINE}JOB_KILLED`);   // บรรทัดที่ server เขียนเอง ต้องเป็นโค้ด ไม่ใช่ประโยค
         j.proc?.kill();
         return json({ killed: true, id: j.id });
       }
@@ -481,7 +542,7 @@ Bun.serve({
       if (u.pathname === "/api/job-log") {
         const id = Number(u.searchParams.get("id") ?? 0);
         const j = id ? jobList.find((x) => x.id === id) : latestByName(u.searchParams.get("name") ?? "");
-        if (!j) return json({ error: "no such job" }, 404);
+        if (!j) return json({ error: "JOB_NOT_FOUND" }, 404);
         const from = Math.max(Number(u.searchParams.get("from") ?? 0), j.offset);
         return json({
           id: j.id, name: j.name, running: j.running, code: j.code,
@@ -509,6 +570,7 @@ Bun.serve({
           kinds: topEntries(agg.kinds, 8), roles: topEntries(agg.roles, 5),
           tiers: topEntries(agg.tiers, 5), repos: topEntries(agg.repos, 14),
           tools: topEntries(agg.tools, 18), models: topEntries(agg.models, 8),
+          groups: groupList(),
         });
       }
       // timeline: block รอบๆ บรรทัดที่เลือก เรียงตาม (line, idx)
@@ -531,13 +593,13 @@ Bun.serve({
         const rows = await events.query().where(`id = '${esc(id)}'`)
           .select(["line", "idx", "kind", "role", "tool", "model", "repo", "ts", "n_chars", "text"])
           .limit(1).toArray() as any[];
-        return json(rows[0] ?? { error: "not found" }, rows[0] ? 200 : 404);
+        return json(rows[0] ?? { error: "NOT_FOUND" }, rows[0] ? 200 : 404);
       }
       if (u.pathname === "/api/raw") {
         const file = u.searchParams.get("file") ?? "";
         const line = Number(u.searchParams.get("line") ?? 0);
         const raw = await rawLine(file, line);
-        return raw === null ? json({ error: "not found" }, 404)
+        return raw === null ? json({ error: "NOT_FOUND" }, 404)
           : new Response(raw, { headers: { "content-type": "application/json" } });
       }
       if (u.pathname === "/api/search") {
@@ -612,12 +674,12 @@ Bun.serve({
         }
         if (mode === "vector") {
           const rows = await vecSearch(60);
-          if (!rows) return json({ error: "no vectors yet — run: just embed" }, 409);
+          if (!rows) return json({ error: "NO_VECTORS" }, 409);
           return json({ mode, n: rows.length, took: { total: Date.now() - t0 }, rows });
         }
         // hybrid: RRF k=60 — โหมดให้เลือก ไม่ใช่ default (eval haos: known-item fts เดี่ยวชนะ)
         const [tr, vr] = await Promise.all([textSearch(100), vecSearch(60)]);
-        if (!vr) return json({ error: "hybrid ต้องมี vectors — run: just embed" }, 409);
+        if (!vr) return json({ error: "HYBRID_NEEDS_VECTORS" }, 409);
         const K = 60;
         const fused = new Map<string, any>();
         tr.forEach((r, i) => fused.set(r.id, { ...r, ftsRank: i + 1, score: 1 / (K + i + 1) }));
@@ -631,7 +693,7 @@ Bun.serve({
       }
       return new Response("not found", { status: 404 });
     } catch (e: any) {
-      return json({ error: String(e?.message ?? e) }, 500);
+      return json({ error: "SERVER_ERROR", detail: String(e?.message ?? e) }, 500);
     }
   },
 });

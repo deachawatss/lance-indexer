@@ -1,8 +1,9 @@
 <!doctype html>
-<html lang="th">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="/i18n.js"></script>
 <title>Lance Indexer</title>
 <style>
   :root {
@@ -165,7 +166,7 @@
 <body>
 <header>
   <span class="brand">⛏ lance<span>·indexer</span></span>
-  <input id="q" type="text" placeholder="full-text search across every session on this machine… (ว่าง = browse)" autofocus>
+  <input id="q" type="text" data-i18n-placeholder="search.placeholder" autofocus>
   <div class="modes">
     <button data-m="text" aria-pressed="true">fts</button>
     <button data-m="vector" aria-pressed="false">vector</button>
@@ -173,13 +174,14 @@
   </div>
   <span class="took" id="took">—</span>
   <nav class="pages">
-    <a href="/" aria-current="page">🔍 ค้นหา</a>
-    <a href="/map">🗺 แผนที่</a>
-    <a href="/insight">💡 insight</a>
-    <a href="/live">📡 live</a>
-    <a href="/admin">⚙ jobs</a>
+    <a href="/" aria-current="page" data-i18n="nav.search"></a>
+    <a href="/map" data-i18n="nav.map"></a>
+    <a href="/insight" data-i18n="nav.insight"></a>
+    <a href="/live" data-i18n="nav.live"></a>
+    <a href="/admin" data-i18n="nav.jobs"></a>
   </nav>
   <button class="ghost" onclick="refreshIndex()">↻</button>
+  <button class="ghost" data-lang-switch></button>
 </header>
 <div class="body">
   <aside id="facets"></aside>
@@ -188,7 +190,7 @@
 <button id="ctxbtn" hidden onclick="toggleRepoCtx()">🧭 context</button>
 <div id="mapmodal" hidden>
   <div class="frame">
-    <a class="open" id="mapmodalOpen" href="#" target="_blank">↗ เปิดเต็มจอ</a>
+    <a class="open" id="mapmodalOpen" href="#" target="_blank" data-i18n="search.openFull"></a>
     <button class="close" onclick="closeMapModal()">✕</button>
     <iframe id="mapframe" src="about:blank"></iframe>
   </div>
@@ -201,9 +203,9 @@
       <span id="ttytitle">job log</span>
       <span style="flex:1"></span>
       <button id="ttystart" hidden
-        style="background:var(--accdim);border:1px solid var(--acc);border-radius:6px;color:#dff5e8;font:12px var(--mono);padding:7px 16px;cursor:pointer">▶ เริ่ม</button>
+        style="background:var(--accdim);border:1px solid var(--acc);border-radius:6px;color:#dff5e8;font:12px var(--mono);padding:7px 16px;cursor:pointer" data-i18n="job.start"></button>
       <button id="ttykill" hidden onclick="killJob()"
-        style="background:#3a1f1f;border:1px solid #f0928f;border-radius:6px;color:#f0c0be;font:12px var(--mono);padding:7px 16px;cursor:pointer">■ หยุด</button>
+        style="background:#3a1f1f;border:1px solid #f0928f;border-radius:6px;color:#f0c0be;font:12px var(--mono);padding:7px 16px;cursor:pointer" data-i18n="job.stop"></button>
       <button class="ghost" id="ttyclose" onclick="closeTtyModal()">✕</button>
     </div>
     <pre id="ttybig"></pre>
@@ -284,9 +286,9 @@ async function toggleRepoCtx() {
   const box = $('#repoctx');
   if (!box.hidden) { box.hidden = true; return; }
   box.hidden = false;
-  box.innerHTML = '<p class="m">กำลังโหลด…</p>';
+  box.innerHTML = `<p class="m">${esc(t('common.loading'))}</p>`;
   const d = await (await fetch(`/api/repo?name=${encodeURIComponent(filter.repo)}`)).json();
-  if (d.error) { box.innerHTML = `<p class="m">${esc(d.error)}</p>`; return; }
+  if (d.error) { box.innerHTML = `<p class="m">${esc(tsrv(d))}</p>`; return; }
   const maxDay = Math.max(...d.days.map(([, n]) => n), 1);
   box.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:start">
@@ -294,27 +296,27 @@ async function toggleRepoCtx() {
         <span class="m">${d.blocks.toLocaleString()} blocks · ${d.sessions} sessions · ${esc(d.first)} → ${esc(d.last)}</span></div>
       <button class="ghost" onclick="this.closest('#repoctx').hidden=true">✕</button>
     </div>
-    <h3>กิจกรรมรายวัน</h3>
+    <h3>${esc(t('repo.dailyActivity'))}</h3>
     <div class="bar">${d.days.map(([day, n]) =>
       `<i title="${day}: ${n}" style="height:${Math.max(4, n / maxDay * 100)}%"></i>`).join('')}</div>
     <h3>Blocks</h3>
     ${Object.entries(d.kinds).sort((a, b) => b[1] - a[1]).map(([k, n]) =>
       `<div class="row"><span>${esc(k)}</span><span class="n">${n.toLocaleString()}</span></div>`).join('')}
-    <h3>เครื่องมือที่ใช้บ่อย</h3>
+    <h3>${esc(t('repo.topTools'))}</h3>
     ${d.tools.map(([k, n]) =>
       `<div class="row"><span>${esc(k)}</span><span class="n">${n.toLocaleString()}</span></div>`).join('')}
-    <h3>หัวข้อ (session summaries ล่าสุด)</h3>
+    <h3>${esc(t('repo.topics'))}</h3>
     ${d.summaries.length ? d.summaries.map((s) =>
       `<div class="sum">${esc(s.text)}<div class="m">${esc(s.ts ? new Date(s.ts).toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }).slice(0, 16) : '')}</div></div>`).join('')
-      : '<p class="m">ไม่มี summary ใน repo นี้</p>'}
-    <h3>Memory distance — repo ที่คิดใกล้กัน (centroid cosine)</h3>
+      : `<p class="m">${esc(t('repo.noSummary'))}</p>`}
+    <h3>${esc(t('repo.memoryDistance'))}</h3>
     ${d.neighbors ? d.neighbors.slice(0, 10).map((nb) =>
       `<div class="dist"><span style="width:12rem;overflow:hidden;text-overflow:ellipsis">${esc(nb.repo)}</span>
         <span class="track"><i style="width:${Math.round((1 - nb.d) * 100)}%"></i></span>
         <span class="n" style="color:var(--fg)">${nb.d.toFixed(3)}</span></div>`).join('')
-      : '<p class="m">ยังไม่มี vectors พอ (ต้อง ≥20)</p>'}
+      : `<p class="m">${esc(t('repo.needVectors'))}</p>`}
     <a class="mapbtn" href="/map?repo=${encodeURIComponent(d.name)}"
-       onclick="return openMapModal('${esc(d.name)}')">🗺 แผนที่เฉพาะ repo นี้</a>`;
+       onclick="return openMapModal('${esc(d.name)}')">${esc(t('repo.mapThisRepo'))}</a>`;
 }
 
 // ── jobs: กดปุ่ม → popup เช็คก่อน (ทำแล้วเท่าไหร่ / ใหม่เท่าไหร่) → กด ▶ เริ่ม ถึงลงมือ ──
@@ -325,27 +327,27 @@ async function startJob(name) {
   $('#ttystart').hidden = true;
   $('#ttykill').hidden = true;
   $('#ttydot').className = 'dot';
-  $('#ttytitle').textContent = `${name} · ตรวจก่อน…`;
-  $('#ttybig').textContent = 'กำลังเช็คสถานะ…';
+  $('#ttytitle').textContent = t('job.preflightTitle', { name });
+  $('#ttybig').textContent = t('job.checking');
   try {
     const p = await (await fetch(`/api/preflight?name=${name}`)).json();
     const lines = name === 'import'
-      ? [`ไฟล์ทั้งเครื่อง     ${p.found.toLocaleString()}`,
-         `  ✓ ทำแล้ว ไม่เปลี่ยน  ${p.unchanged.toLocaleString()}  (จะข้าม)`,
-         `  ＋ ใหม่             ${p.new.toLocaleString()}`,
-         `  ∆ เปลี่ยน           ${p.changed.toLocaleString()}`,
+      ? [t('job.import.files', { n: p.found.toLocaleString() }),
+         t('job.import.unchanged', { n: p.unchanged.toLocaleString() }),
+         t('job.import.new', { n: p.new.toLocaleString() }),
+         t('job.import.changed', { n: p.changed.toLocaleString() }),
          ``,
-         p.willImport ? `จะ import ${p.willImport.toLocaleString()} ไฟล์ — กด ▶ เริ่ม` : `ทุกอย่างทันสมัยแล้ว — ไม่มีอะไรต้องทำ (กดเริ่มเพื่อยืนยันซ้ำได้)`]
-      : [`text blocks ทั้งหมด   ${p.candidates.toLocaleString()}`,
-         `  ✓ embed แล้ว        ${p.embedded.toLocaleString()}`,
-         `  ○ เหลือ             ${p.remaining.toLocaleString()}`,
+         p.willImport ? t('job.import.will', { n: p.willImport.toLocaleString() }) : t('job.import.upToDate')]
+      : [t('job.embed.candidates', { n: p.candidates.toLocaleString() }),
+         t('job.embed.done', { n: p.embedded.toLocaleString() }),
+         t('job.embed.remaining', { n: p.remaining.toLocaleString() }),
          ``,
-         p.remaining ? `รอบนี้จะทำ ${Math.min(p.remaining, 2000).toLocaleString()} ก้อน (incremental — ข้ามที่ทำแล้ว) — กด ▶ เริ่ม` : `ครบหมดแล้ว — ไม่มีอะไรต้อง embed`];
-    $('#ttytitle').textContent = `${name} · ตรวจแล้ว`;
+         p.remaining ? t('job.embed.will', { n: Math.min(p.remaining, 2000).toLocaleString() }) : t('job.embed.upToDate')];
+    $('#ttytitle').textContent = t('job.preflightDone', { name });
     $('#ttybig').textContent = lines.join('\n');
     $('#ttystart').hidden = false;
     $('#ttystart').onclick = () => launchJob(name);
-  } catch (e) { $('#ttybig').textContent = 'เช็คไม่ได้: ' + e; }
+  } catch (e) { $('#ttybig').textContent = t('job.checkFailed', { error: e }); }
 }
 async function launchJob(name) {
   $('#ttystart').hidden = true;
@@ -353,7 +355,7 @@ async function launchJob(name) {
   if (!d.started) {
     // 409 = งานชนิดนี้วิ่งอยู่แล้ว (อาจสั่งจาก tab อื่น) — เกาะดู log ของมันแทน
     jobState.watching = name; jobState.from = 0;
-    jobState.buf = [`[${name}] ${d.note ?? 'กำลังวิ่งอยู่'} — เกาะดูต่อ`];
+    jobState.buf = [t('job.alreadyRunning', { name, note: tsrv(d) || t('job.runningNote') })];
   } else {
     jobState.watching = name; jobState.from = 0;
     jobState.buf = [`$ bun ${name}.ts${name === 'embed' ? ' 2000' : ''}`];
@@ -369,13 +371,13 @@ async function watchJob() {
   try {
     const d = await (await fetch(`/api/job-log?name=${jobState.watching}&from=${jobState.from}`)).json();
     if (d.lines?.length) {
-      jobState.buf.push(...d.lines); jobState.from = d.next;
+      jobState.buf.push(...d.lines.map(srvLine)); jobState.from = d.next;
       if (jobState.buf.length > 600) jobState.buf = jobState.buf.slice(-600);
       renderTty();
     }
     if (d.running) setTimeout(watchJob, 1000);
     else {
-      jobState.buf.push(d.code === 0 ? '✓ เสร็จ' : `✗ exit ${d.code}`);
+      jobState.buf.push(d.code === 0 ? t('job.finished') : t('job.exit', { code: d.code }));
       jobState.watching = null;
       renderTty(); loadFacets(); search();
     }
@@ -385,7 +387,7 @@ function renderTty() {
   const el = $('#tty');
   if (el) {
     el.textContent = jobState.buf.join('\n');
-    el.title = 'กดเพื่อขยาย';
+    el.title = t('job.expandHint');
     el.onclick = openTtyModal;
     el.scrollTop = el.scrollHeight;
   }
@@ -400,7 +402,7 @@ function renderTty() {
     big.textContent = jobState.buf.join('\n');
     if (follow) big.scrollTop = big.scrollHeight;
     $('#ttydot').classList.toggle('live', running);
-    $('#ttytitle').textContent = `${jobState.name ?? 'job'} ${running ? '· กำลังวิ่ง' : '· จบแล้ว'}`;
+    $('#ttytitle').textContent = `${jobState.name ?? 'job'} ${running ? t('job.running') : t('job.ended')}`;
     $('#ttykill').hidden = !running;
   }
 }
@@ -411,7 +413,7 @@ async function openTtyModal() {
   if (jobState.name) {
     try {
       const d = await (await fetch(`/api/job-log?name=${jobState.name}&from=0`)).json();
-      if (d.lines) { jobState.buf = d.lines; jobState.from = d.next; }
+      if (d.lines) { jobState.buf = d.lines.map(srvLine); jobState.from = d.next; }
     } catch {}
   }
   renderTty();
@@ -440,7 +442,7 @@ async function search() {
   const p = new URLSearchParams({ q, mode, ...Object.fromEntries(Object.entries(filter).filter(([, v]) => v)) });
   const d = await (await fetch('/api/search?' + p)).json();
   if (my !== seqNo) return;
-  if (d.error) { $('#took').textContent = '—'; $('#results').innerHTML = `<div id="empty">${esc(d.error)}</div>`; return; }
+  if (d.error) { $('#took').textContent = '—'; $('#results').innerHTML = `<div id="empty">${esc(tsrv(d))}</div>`; return; }
   const tk = d.took ?? {};
   $('#took').textContent = `${d.n} rows · ` + (tk.db != null ? `${tk.db}ms db · ` : '') + `${tk.total}ms · ${d.mode}`;
   $('#results').innerHTML = d.rows.length ? d.rows.map((r) => `
@@ -460,7 +462,7 @@ async function search() {
         </div>
         <div class="t2">${snippet(r.text, d.mode !== 'vector' ? q : '')}</div>
       </div>
-    </div>`).join('') : '<div id="empty">ไม่เจอ</div>';
+    </div>`).join('') : `<div id="empty">${esc(t('search.noHits'))}</div>`;
   document.querySelectorAll('.row').forEach((el) =>
     el.addEventListener('click', () => openDrill({ id: el.dataset.id, file: el.dataset.file, line: Number(el.dataset.line) })));
 }
@@ -487,11 +489,11 @@ async function renderDrill() {
       const ev = await (await fetch(`/api/event?id=${encodeURIComponent(cur.id)}`)).json();
       const q = $('#q').value.trim();
       bd.innerHTML = `<div class="h" style="color:var(--dim);font-size:11px;margin-bottom:8px">
-        ${ev.kind}${ev.tool ? ` · ${esc(ev.tool)}` : ''} · ${ev.role} · ${fmtTs(ev.ts)} · ${(ev.n_chars ?? 0).toLocaleString()} chars${ev.n_chars > 4000 ? ' (เก็บ 4000 — ดูเต็มที่ raw)' : ''}</div>` +
+        ${ev.kind}${ev.tool ? ` · ${esc(ev.tool)}` : ''} · ${ev.role} · ${fmtTs(ev.ts)} · ${(ev.n_chars ?? 0).toLocaleString()} chars${ev.n_chars > 4000 ? esc(t('drill.capped')) : ''}</div>` +
         (q ? snippetFull(ev.text, q) : esc(ev.text ?? '—'));
     } else if (curTab === 'timeline') {
       const d = await (await fetch(`/api/session?file=${encodeURIComponent(cur.file)}&center=${cur.line}`)).json();
-      bd.innerHTML = `<div class="h" style="color:var(--dim);font-size:11px">${d.total} blocks — click เพื่อ jump</div>` +
+      bd.innerHTML = `<div class="h" style="color:var(--dim);font-size:11px">${esc(t('drill.jumpHint', { total: d.total }))}</div>` +
         d.rows.map((r) => `<div class="ev ${r.line === cur.line ? 'cur' : ''}" data-line="${r.line}" data-idx="${r.idx}">
           <div class="h">#${r.line}.${r.idx} · <span class="t ${r.kind} ${r.role}">${r.kind === 'tool_use' ? esc(r.tool || 'tool') : r.kind}</span> · ${fmtTs(r.ts)}</div>
           <div class="t">${esc(String(r.text).slice(0, 260))}</div></div>`).join('');
@@ -509,7 +511,7 @@ async function renderDrill() {
       try { bd.textContent = JSON.stringify(JSON.parse(raw), null, 2); }
       catch { bd.textContent = raw; }
     }
-  } catch (e) { bd.textContent = 'โหลดไม่ได้: ' + e; }
+  } catch (e) { bd.textContent = t('common.loadFailed', { error: e }); }
 }
 function snippetFull(text, q) {
   const t = String(text ?? '');
@@ -533,7 +535,7 @@ function closeMapModal() {
 $('#mapmodal').addEventListener('click', (e) => { if (e.target.id === 'mapmodal') closeMapModal(); });
 
 async function refreshIndex() {
-  $('#took').textContent = 'refreshing…';
+  $('#took').textContent = t('search.refreshing');
   await fetch('/api/refresh');
   loadFacets(); search();
 }
@@ -545,6 +547,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === '/' && document.activeElement !== $('#q')) { e.preventDefault(); $('#q').focus(); }
   if (e.key === 'Escape') closeDrill();
 });
+i18n.apply();
 loadFacets(); search();
 </script>
 <script src="/demo.js"></script>

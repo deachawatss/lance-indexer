@@ -1,8 +1,9 @@
 <!doctype html>
-<html lang="th">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="/i18n.js"></script>
 <title>Insight · lance-indexer</title>
 <style>
   :root {
@@ -62,37 +63,38 @@
 <header>
   <span class="brand">⛏ lance<span>·indexer</span></span>
   <nav class="pages">
-    <a href="/">🔍 ค้นหา</a>
-    <a href="/map">🗺 แผนที่</a>
-    <a href="/insight" aria-current="page">💡 insight</a>
-    <a href="/live">📡 live</a>
-    <a href="/admin">⚙ jobs</a>
+    <a href="/" data-i18n="nav.search"></a>
+    <a href="/map" data-i18n="nav.map"></a>
+    <a href="/insight" aria-current="page" data-i18n="nav.insight"></a>
+    <a href="/live" data-i18n="nav.live"></a>
+    <a href="/admin" data-i18n="nav.jobs"></a>
   </nav>
+  <button class="ghost" data-lang-switch style="margin-left:auto;background:transparent;border:1px solid var(--line2);border-radius:6px;color:var(--dim);font:11px var(--mono);padding:7px 12px;cursor:pointer"></button>
 </header>
 <main>
-  <h1>💡 ถามความจำทั้งเครื่อง</h1>
-  <p class="sub">RAG ตรงไปตรงมา: embed คำถาม (bge-m3) → vector top-K จาก <span id="veccount">…</span> ก้อน →
-    ส่งหลักฐานให้ LLM ตอบพร้อมอ้าง [n] — โมเดลรันบน gpu1 ผ่าน ssh tunnel ไม่มีอะไรออกจากบ้าน</p>
+  <h1 data-i18n="insight.h1"></h1>
+  <p class="sub"><span data-i18n="insight.sub1"></span> <span id="veccount">…</span> <span data-i18n="insight.sub2"></span></p>
   <div class="ask">
-    <textarea id="q" placeholder="เช่น: อาทิตย์นี้ fleet เจอปัญหาอะไรซ้ำบ่อยสุด? / เราตัดสินใจอะไรไปแล้วเรื่อง vector store?"></textarea>
-    <button class="go" id="go">ถาม</button>
+    <textarea id="q" data-i18n-placeholder="insight.placeholder"></textarea>
+    <button class="go" id="go" data-i18n="insight.ask"></button>
   </div>
   <div class="opts">
     <label>model <select id="model">
-      <option value="qwen2.5:7b">qwen2.5:7b (gpu1, เร็ว ไม่คิดในใจ)</option>
-      <option value="qwen3:30b-a3b">qwen3:30b-a3b (ฉลาดกว่า แต่คิดยาว)</option>
+      <option value="qwen2.5:7b" data-i18n="insight.model.fast"></option>
+      <option value="qwen3:30b-a3b" data-i18n="insight.model.smart"></option>
       <option value="gemma4:12b">gemma4:12b</option>
     </select></label>
     <label>k <input id="k" type="number" value="12" min="4" max="24" style="width:52px"></label>
-    <label>repo <input id="repo" placeholder="(ทั้งเครื่อง)" style="width:150px"></label>
+    <label>repo <input id="repo" data-i18n-placeholder="insight.repoPlaceholder" style="width:150px"></label>
   </div>
-  <p class="hint">ลอง: <span>อาทิตย์นี้แต่ละ oracle ทำอะไรกันบ้าง</span> ·
-    <span>ปัญหา wireguard/netbird ที่เจอคืออะไร แก้ยังไง</span> ·
-    <span>บทเรียนเรื่อง LanceDB ที่จ่ายแพงที่สุด</span></p>
+  <p class="hint"><span data-i18n="insight.tryLabel" style="cursor:default;text-decoration:none"></span>
+    <span data-i18n="insight.try1"></span> ·
+    <span data-i18n="insight.try2"></span> ·
+    <span data-i18n="insight.try3"></span></p>
   <div id="status"></div>
   <div id="answer"></div>
   <div id="evwrap" hidden>
-    <h2>หลักฐาน — click [n] ในคำตอบเพื่อไฮไลต์</h2>
+    <h2 data-i18n="insight.evidence"></h2>
     <div id="evidence"></div>
   </div>
 </main>
@@ -101,7 +103,9 @@
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 fetch('/api/facets').then((r) => r.json()).then((f) => { $('#veccount').textContent = f.corpus.vectors.toLocaleString(); });
-document.querySelectorAll('.hint span').forEach((el) => el.onclick = () => { $('#q').value = el.textContent; ask(); });
+i18n.apply();
+document.querySelectorAll('.hint span[data-i18n^="insight.try"]').forEach((el) =>
+  el.onclick = () => { $('#q').value = el.textContent; ask(); });
 
 async function ask() {
   const q = $('#q').value.trim();
@@ -110,15 +114,17 @@ async function ask() {
   $('#answer').textContent = '';
   $('#evwrap').hidden = true;
   const t0 = Date.now();
-  $('#status').textContent = 'ค้นหลักฐาน + ถามโมเดล… (โมเดลใหญ่อาจใช้ ~10-60s)';
-  const tick = setInterval(() => { $('#status').textContent = `กำลังคิด… ${((Date.now()-t0)/1000).toFixed(0)}s`; }, 1000);
+  $('#status').textContent = t('insight.searching');
+  const tick = setInterval(() => {
+    $('#status').textContent = t('insight.thinking', { s: ((Date.now() - t0) / 1000).toFixed(0) });
+  }, 1000);
   try {
     const d = await (await fetch('/api/insight', {
       method: 'POST',
       body: JSON.stringify({ q, k: Number($('#k').value), repo: $('#repo').value.trim(), model: $('#model').value }),
     })).json();
     clearInterval(tick);
-    if (d.error) { $('#status').textContent = '✗ ' + d.error; return; }
+    if (d.error) { $('#status').textContent = '✗ ' + tsrv(d); return; }
     $('#status').textContent = `${d.model} · embed ${d.took.embed}ms · search ${d.took.search}ms · llm ${(d.took.llm/1000).toFixed(1)}s`;
     // อ้าง [n] คลิกได้ → ไฮไลต์หลักฐาน
     $('#answer').innerHTML = esc(d.answer).replace(/\[(\d+)\]/g, '<span class="cite" data-n="$1">[$1]</span>');
@@ -138,7 +144,7 @@ async function ask() {
       ev.classList.add('hl');
       ev.scrollIntoView({ behavior: 'smooth', block: 'center' });
     });
-  } catch (e) { clearInterval(tick); $('#status').textContent = '✗ ' + e; }
+  } catch (e) { clearInterval(tick); $('#status').textContent = '✗ ' + t('common.loadFailed', { error: e }); }
   finally { $('#go').disabled = false; }
 }
 $('#go').onclick = ask;

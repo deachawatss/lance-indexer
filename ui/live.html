@@ -1,9 +1,10 @@
 <!doctype html>
-<html lang="th">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Live · lance-indexer</title>
+<script src="/i18n.js"></script>
 <style>
   :root {
     --bg: #0c0d10; --panel: #131519; --panel2: #181b21; --line: #23272f; --line2: #2e333d;
@@ -61,25 +62,27 @@
   .row .t2 { margin-top: 2px; white-space: pre-wrap; word-break: break-word; font-size: 12.5px;
              color: #c9d0da; max-height: 4.6em; overflow: hidden; }
   #empty { color: var(--dim2); text-align: center; padding: 60px 0; }
+  button#lang { margin-left: auto; }
 </style>
 </head>
 <body>
 <header>
   <span class="brand">⛏ lance<span>·indexer</span></span>
   <nav class="pages">
-    <a href="/">🔍 ค้นหา</a>
-    <a href="/map">🗺 แผนที่</a>
-    <a href="/insight">💡 insight</a>
-    <a href="/live" aria-current="page">📡 live</a>
-    <a href="/admin">⚙ jobs</a>
+    <a href="/" data-i18n="nav.search"></a>
+    <a href="/map" data-i18n="nav.map"></a>
+    <a href="/insight" data-i18n="nav.insight"></a>
+    <a href="/live" aria-current="page" data-i18n="nav.live"></a>
+    <a href="/admin" data-i18n="nav.jobs"></a>
   </nav>
   <span class="dot live" id="dot"></span>
-  <span id="stat">เริ่ม…</span>
-  <input id="frepo" placeholder="กรอง repo (ว่าง = ทุกตัว)">
-  <button class="ghost" id="pause" aria-pressed="false">⏸ พัก</button>
+  <span id="stat"></span>
+  <input id="frepo" data-i18n-placeholder="live.filterRepo">
+  <button class="ghost" id="pause" aria-pressed="false" data-i18n="live.pause"></button>
+  <button class="ghost" id="lang" data-lang-switch></button>
 </header>
 <main>
-  <div id="feed"><div id="empty">รอ block แรก…</div></div>
+  <div id="feed"><div id="empty" data-i18n="live.waitingFirst"></div></div>
 </main>
 <div id="drill" hidden></div>
 
@@ -91,11 +94,13 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;',
 const fmtTs = (t) => t ? new Date(t).toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';  // GMT+7 เสมอ
 const seen = new Set();
 let paused = false, timer = null, lastImport = 0;
+i18n.apply();                                   // markup นิ่งก่อน แล้วที่เหลือเรียก t() ตอนประกอบ
+$('#stat').textContent = t('live.starting');
 
 $('#pause').onclick = () => {
   paused = !paused;
   $('#pause').setAttribute('aria-pressed', paused);
-  $('#pause').textContent = paused ? '▶ ต่อ' : '⏸ พัก';
+  $('#pause').textContent = t(paused ? 'live.resume' : 'live.pause');
   $('#dot').classList.toggle('live', !paused);
   if (!paused) tick();
 };
@@ -120,14 +125,14 @@ function render(r, fresh) {
 async function openDrill(r) {
   const d = $('#drill');
   d.hidden = false;
-  d.innerHTML = `<button onclick="this.parentElement.hidden=true">✕ close</button>
+  d.innerHTML = `<button onclick="this.parentElement.hidden=true">${esc(t('common.close'))}</button>
     <div class="m">📦 ${esc(r.repo ?? '')} · ${esc(r.kind)}${r.tool ? ' · ' + esc(r.tool) : ''} · ${esc(r.role ?? '')}
       · ${esc(r.ts ? new Date(r.ts).toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }) : '')}<br>${esc(r.session)}#${r.line} · ${esc(r.tier ?? '')}${r.model ? ' · ' + esc(r.model) : ''}</div>
-    <pre>กำลังโหลด…</pre>`;
+    <pre>${esc(t('common.loading'))}</pre>`;
   try {
     const ev = await (await fetch(`/api/event?id=${encodeURIComponent(r.id)}`)).json();
-    d.querySelector('pre').textContent = ev.text ?? ev.error ?? '—';
-  } catch (e) { d.querySelector('pre').textContent = 'โหลดไม่ได้: ' + e; }
+    d.querySelector('pre').textContent = ev.text ?? tsrv(ev) ?? '—';
+  } catch (e) { d.querySelector('pre').textContent = t('common.loadFailed', { error: e }); }
   d.scrollTop = 0;
 }
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('#drill').hidden = true; });
@@ -139,7 +144,7 @@ async function tick() {
     // backfill ทุก 20s — เร็วเพราะ manifest ข้ามไฟล์ที่ไม่เปลี่ยน
     if (Date.now() - lastImport > 20000) {
       lastImport = Date.now();
-      $('#stat').textContent = 'backfill…';
+      $('#stat').textContent = t('live.backfill');
       await fetch('/api/import', { method: 'POST' }).catch(() => {});
       // รอ job จบ (import backfill ~0.2-2s)
       for (let i = 0; i < 20; i++) {
@@ -166,9 +171,10 @@ async function tick() {
     while (feed.children.length > 200) feed.lastChild.remove();
     const top = rows[0]?.ts ? new Date(rows[0].ts) : null;
     const lag = top ? Math.round((Date.now() - top.getTime()) / 1000) : null;
-    $('#stat').textContent = `${new Date().toTimeString().slice(0, 8)} · +${added} ใหม่ · แสดง ${feed.children.length}` +
-      (lag !== null ? ` · ล่าสุดใน index: ${lag < 90 ? lag + 's' : Math.round(lag/60) + 'm'} ที่แล้ว` : '');
-  } catch (e) { $('#stat').textContent = '✗ ' + e; }
+    $('#stat').textContent =
+      t('live.stat', { time: new Date().toTimeString().slice(0, 8), added, shown: feed.children.length }) +
+      (lag !== null ? t('live.lag', { lag: lag < 90 ? lag + 's' : Math.round(lag / 60) + 'm' }) : '');
+  } catch (e) { $('#stat').textContent = '✗ ' + t('common.loadFailed', { error: e }); }
   timer = setTimeout(tick, 6000);
 }
 tick();
