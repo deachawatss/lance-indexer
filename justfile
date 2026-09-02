@@ -24,6 +24,10 @@ embed n="300":
 compare:
     bun scripts/compare.ts
 
+# TEST — ชุดทดสอบทั้งหมด (bun หา *.test.ts เองทั้ง repo — ไม่ต้อง import/embed ก่อน)
+test:
+    bun test
+
 # TEARDOWN — ล้าง db ทิ้ง จบวงจร
 teardown:
     rm -rf {{data}}

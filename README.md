@@ -33,6 +33,7 @@ just ui           # http://127.0.0.1:4131
 just embed 300    # explicit incremental embedding
 just compare      # compare against the companion FTS proof
 just teardown     # remove only this lab's .data/
+just test         # run the whole test suite
 ```
 
 `scripts/import.ts` defaults to `~/.claude/projects`; it is a **local-only**
