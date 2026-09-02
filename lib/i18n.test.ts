@@ -10,6 +10,7 @@ const i18n = (globalThis as any).i18n as {
   stored: () => string;
   tsrv: (payload?: Record<string, unknown>) => string;
   srvLine: (line: string) => string;
+  esc: (s: unknown) => string;
   lang: string;
   DEFAULT: string;
   TABLES: Record<string, Record<string, string>>;
@@ -138,6 +139,26 @@ describe("srvLine — job logs are raw child stdout with the odd tagged line", (
 
   test("a tagged line with an unknown code degrades visibly", () => {
     expect(i18n.srvLine("@@srv NOPE")).toBe("unexpected server code: NOPE");
+  });
+});
+
+describe("esc — shared by every page instead of copied into each", () => {
+  test("escapes the four characters that break attribute and element context", () => {
+    expect(i18n.esc('<a href="x">&</a>')).toBe("&lt;a href=&quot;x&quot;&gt;&amp;&lt;/a&gt;");
+  });
+
+  test("a repo name carrying markup cannot escape its option element", () => {
+    expect(i18n.esc('</option><script>alert(1)</script>'))
+      .toBe("&lt;/option&gt;&lt;script&gt;alert(1)&lt;/script&gt;");
+  });
+
+  test("ordinary text passes through unchanged", () => {
+    expect(i18n.esc("NWFTH-ProductionDashboard")).toBe("NWFTH-ProductionDashboard");
+    expect(i18n.esc("ทั้งเครื่อง")).toBe("ทั้งเครื่อง");
+  });
+
+  test("a non-string is coerced rather than throwing", () => {
+    expect(i18n.esc(407701)).toBe("407701");
   });
 });
 
