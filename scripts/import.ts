@@ -4,6 +4,7 @@
 // รันซ้ำ = BACKFILL: (path,mtime,size) ไม่เปลี่ยน → ข้าม
 import * as lancedb from "@lancedb/lancedb";
 import { deriveOrgRepo } from "../lib/attribution";
+import { pickSessionTitle, type TitleRecord } from "../lib/session-title";
 import { readdirSync, statSync, createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
 import { join, basename } from "node:path";
@@ -49,7 +50,9 @@ for (const proj of readdirSync(ROOT)) {
 }
 
 // ---- 2. FLATTEN: 1 บรรทัด → 0..n block rows (พอร์ตจาก haos flatten.ts) ----
-const KEEP = new Set(["user", "assistant", "summary"]);
+const KEEP = new Set(["user", "assistant"]);
+// เรคอร์ดหัวข้อไม่มี cwd และไม่มี timestamp ของตัวเอง จึงจัดการนอก flatten (ดู loop ด้านล่าง)
+const TITLE_TYPES = new Set(["ai-title", "custom-title", "summary"]);
 const str = (v: unknown) => (typeof v === "string" ? v : v == null ? "" : String(v));
 function resultText(c: unknown): string {
   if (typeof c === "string") return c;
@@ -73,7 +76,6 @@ function flatten(o: any, f: F, line: number, session: string): any[] {
     const t = text.slice(0, CAP);
     out.push({ ...base, id: `${f.path}#${line}#${idx}`, idx, kind, tool, n_chars: text.length, text: t, ltext: t.toLowerCase() });
   };
-  if (type === "summary") { push("summary", "", str(o.summary), 0); return out; }
   const c = o?.message?.content;
   if (typeof c === "string") { push("text", "", c, 0); return out; }
   if (!Array.isArray(c)) return out;
@@ -131,13 +133,33 @@ async function flush() {
 for (const f of changed) {
   let line = 0;
   const session = basename(f.path, ".jsonl");
+  // หัวข้อ session: เรคอร์ดมีแค่ type + ชื่อเรื่อง + sessionId ไม่มี cwd ไม่มี timestamp
+  // เก็บไว้ก่อนแล้วยืม cwd กับ ts ล่าสุดของไฟล์ตอนจบ — 7 ไฟล์ในคลังวางหัวข้อไว้ก่อนบรรทัดแรกที่มี cwd
+  const titles: TitleRecord[] = [];
+  let fileCwd = "", maxTs = "";
   const rl = createInterface({ input: createReadStream(f.path) });
   for await (const raw of rl) {
     line++;                                    // เลขบรรทัดจริง (รวมบรรทัดว่าง) — สัญญา raw tab
     if (!raw.trim()) continue;
     let o: any; try { o = JSON.parse(raw); } catch { corrupt++; continue; }
+    if (!fileCwd && o.cwd) fileCwd = str(o.cwd);
+    const ts = str(o.timestamp);
+    if (ts > maxTs) maxTs = ts;
+    if (TITLE_TYPES.has(str(o.type)))
+      titles.push({ type: str(o.type), aiTitle: o.aiTitle, customTitle: o.customTitle, summary: o.summary, line });
     buf.push(...flatten(o, f, line, session));
     if (buf.length >= 20000) await flush();
+  }
+  const title = pickSessionTitle(titles);
+  if (title) {
+    const text = title.text.slice(0, CAP);
+    buf.push({
+      file: f.path, line: title.line, session, tier: f.tier,
+      ...deriveOrgRepo(fileCwd),
+      role: "summary", model: "", ts: maxTs,
+      id: `${f.path}#${title.line}#0`, idx: 0, kind: "summary", tool: "",
+      n_chars: title.text.length, text, ltext: text.toLowerCase(),
+    });
   }
   fileRows.push({ path: f.path, tier: f.tier, mtime: f.mtime, size: f.size });
 }
