@@ -174,7 +174,7 @@ async function tick() {
     $('#stat').textContent =
       t('live.stat', { time: new Date().toTimeString().slice(0, 8), added, shown: feed.children.length }) +
       (lag !== null ? t('live.lag', { lag: lag < 90 ? lag + 's' : Math.round(lag / 60) + 'm' }) : '');
-  } catch (e) { $('#stat').textContent = '✗ ' + e; }
+  } catch (e) { $('#stat').textContent = '✗ ' + t('common.loadFailed', { error: e }); }
   timer = setTimeout(tick, 6000);
 }
 tick();

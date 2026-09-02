@@ -14,6 +14,8 @@ const PORT = Number(process.env.PORT ?? 4131);
 const db = await lancedb.connect(DIR);
 const events = await db.openTable("events");
 const esc = (s: string) => s.replace(/'/g, "''");
+// log ของ job คือ stdout ดิบของสคริปต์ลูก — บรรทัดที่ server เขียนเองติดป้ายนี้ไว้ให้เบราว์เซอร์แปล
+const SRV_LINE = "@@srv ";
 const count = (m: Record<string, number>, k: string) => { if (k) m[k] = (m[k] ?? 0) + 1; };
 
 // ── aggregate ครั้งเดียวตอน start: counts ทุก facet + browse window ──
@@ -532,7 +534,7 @@ Bun.serve({
         const j = id ? jobList.find((x) => x.id === id) : activeByName(u.searchParams.get("name") ?? "");
         if (!j) return json({ error: "JOB_NOT_FOUND" }, 404);
         if (!j.running) return json({ error: "JOB_NOT_RUNNING" }, 409);
-        j.lines.push("■ SIGTERM — this job resumes where it stopped");
+        j.lines.push(`${SRV_LINE}JOB_KILLED`);   // บรรทัดที่ server เขียนเอง ต้องเป็นโค้ด ไม่ใช่ประโยค
         j.proc?.kill();
         return json({ killed: true, id: j.id });
       }

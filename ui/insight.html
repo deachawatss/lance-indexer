@@ -144,7 +144,7 @@ async function ask() {
       ev.classList.add('hl');
       ev.scrollIntoView({ behavior: 'smooth', block: 'center' });
     });
-  } catch (e) { clearInterval(tick); $('#status').textContent = '✗ ' + e; }
+  } catch (e) { clearInterval(tick); $('#status').textContent = '✗ ' + t('common.loadFailed', { error: e }); }
   finally { $('#go').disabled = false; }
 }
 $('#go').onclick = ask;

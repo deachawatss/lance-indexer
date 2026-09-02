@@ -9,6 +9,7 @@ const i18n = (globalThis as any).i18n as {
   use: (l: string) => string;
   stored: () => string;
   tsrv: (payload?: Record<string, unknown>) => string;
+  srvLine: (line: string) => string;
   lang: string;
   DEFAULT: string;
   TABLES: Record<string, Record<string, string>>;
@@ -120,6 +121,23 @@ describe("tsrv — server codes rendered by the browser", () => {
   test("a body with no code renders nothing rather than throwing", () => {
     expect(i18n.tsrv({})).toBe("");
     expect(i18n.tsrv(undefined)).toBe("");
+  });
+});
+
+describe("srvLine — job logs are raw child stdout with the odd tagged line", () => {
+  test("translates a line the server tagged", () => {
+    expect(i18n.srvLine("@@srv JOB_KILLED")).toBe("■ SIGTERM — this job resumes where it stopped");
+    i18n.use("th");
+    expect(i18n.srvLine("@@srv JOB_KILLED")).toBe("■ ถูกสั่งหยุด (SIGTERM) — งานนี้รันใหม่ต่อจากเดิมได้");
+  });
+
+  test("leaves an ordinary stdout line exactly as it came", () => {
+    expect(i18n.srvLine("progress 320000 blocks…")).toBe("progress 320000 blocks…");
+    expect(i18n.srvLine("$ bun import.ts")).toBe("$ bun import.ts");
+  });
+
+  test("a tagged line with an unknown code degrades visibly", () => {
+    expect(i18n.srvLine("@@srv NOPE")).toBe("unexpected server code: NOPE");
   });
 });
 

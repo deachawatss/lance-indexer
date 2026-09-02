@@ -123,6 +123,7 @@
       "srv.SERVER_ERROR": "server error: {detail}",
       "srv.DEMO_JOBS_IMMUTABLE": "the static demo's jobs cannot be changed",
       "srv.UNKNOWN": "unexpected server code: {error}",
+      "srv.JOB_KILLED": "■ SIGTERM — this job resumes where it stopped",
     },
     th: {
       "nav.search": "🔍 ค้นหา",
@@ -241,6 +242,7 @@
       "srv.SERVER_ERROR": "server error: {detail}",
       "srv.DEMO_JOBS_IMMUTABLE": "งานของ demo แบบ static แก้ไม่ได้",
       "srv.UNKNOWN": "โค้ดที่ server ส่งมาไม่รู้จัก: {error}",
+      "srv.JOB_KILLED": "■ ถูกสั่งหยุด (SIGTERM) — งานนี้รันใหม่ต่อจากเดิมได้",
     },
   };
 
@@ -303,8 +305,16 @@
     return table === undefined ? t("srv.UNKNOWN", { error: code }) : t(key, payload);
   }
 
-  root.i18n = { t, tsrv, use, setLang, apply, stored, TABLES, DEFAULT, get lang() { return lang; } };
+  // log ของ job เป็น stdout ดิบเป็นส่วนใหญ่ — แปลเฉพาะบรรทัดที่ server ติดป้ายไว้ ที่เหลือปล่อยผ่าน
+  const SRV_LINE = "@@srv ";
+  function srvLine(line) {
+    const s = String(line);
+    return s.startsWith(SRV_LINE) ? tsrv({ error: s.slice(SRV_LINE.length) }) : s;
+  }
+
+  root.i18n = { t, tsrv, srvLine, use, setLang, apply, stored, TABLES, DEFAULT, get lang() { return lang; } };
   root.t = t;
   root.tsrv = tsrv;
+  root.srvLine = srvLine;
   if (root.document) root.document.addEventListener("DOMContentLoaded", () => apply());
 })(typeof globalThis !== "undefined" ? globalThis : self);

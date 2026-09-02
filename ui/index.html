@@ -371,7 +371,7 @@ async function watchJob() {
   try {
     const d = await (await fetch(`/api/job-log?name=${jobState.watching}&from=${jobState.from}`)).json();
     if (d.lines?.length) {
-      jobState.buf.push(...d.lines); jobState.from = d.next;
+      jobState.buf.push(...d.lines.map(srvLine)); jobState.from = d.next;
       if (jobState.buf.length > 600) jobState.buf = jobState.buf.slice(-600);
       renderTty();
     }
@@ -413,7 +413,7 @@ async function openTtyModal() {
   if (jobState.name) {
     try {
       const d = await (await fetch(`/api/job-log?name=${jobState.name}&from=0`)).json();
-      if (d.lines) { jobState.buf = d.lines; jobState.from = d.next; }
+      if (d.lines) { jobState.buf = d.lines.map(srvLine); jobState.from = d.next; }
     } catch {}
   }
   renderTty();

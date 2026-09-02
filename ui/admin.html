@@ -155,7 +155,7 @@ async function poll() {
     if (d.lines.length) {
       const out = $('#termout');
       const follow = out.scrollTop + out.clientHeight >= out.scrollHeight - 30;
-      out.textContent += (out.textContent ? '\n' : '') + d.lines.join('\n');
+      out.textContent += (out.textContent ? '\n' : '') + d.lines.map(srvLine).join('\n');
       from = d.next;
       if (follow) out.scrollTop = out.scrollHeight;
     }
